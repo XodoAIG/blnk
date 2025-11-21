@@ -9,3 +9,6 @@ dump.rdb
 heartbeat.db
 .claude
 CLAUDE.md
+
+blnk_qas.json
+blnk_prd.json
