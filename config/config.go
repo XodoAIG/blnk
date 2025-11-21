@@ -62,6 +62,7 @@ var (
 		WebhookQueue:                    "new:webhook",
 		IndexQueue:                      "new:index",
 		InflightExpiryQueue:             "new:inflight-expiry",
+		InflightCommitQueue:             "new:inflight-commit",
 		NumberOfQueues:                  20,
 		EnableHotLane:                   false,
 		HotQueueName:                    "hot_transactions",
@@ -176,6 +177,7 @@ type QueueConfig struct {
 	WebhookQueue                    string        `json:"webhook_queue" envconfig:"BLNK_QUEUE_WEBHOOK"`
 	IndexQueue                      string        `json:"index_queue" envconfig:"BLNK_QUEUE_INDEX"`
 	InflightExpiryQueue             string        `json:"inflight_expiry_queue" envconfig:"BLNK_QUEUE_INFLIGHT_EXPIRY"`
+	InflightCommitQueue             string        `json:"inflight_commit_queue" envconfig:"BLNK_QUEUE_INFLIGHT_COMMIT"`
 	NumberOfQueues                  int           `json:"number_of_queues" envconfig:"BLNK_QUEUE_NUMBER_OF_QUEUES"`
 	EnableHotLane                   bool          `json:"enable_hot_lane" envconfig:"BLNK_QUEUE_ENABLE_HOT_LANE"`
 	HotQueueName                    string        `json:"hot_queue_name" envconfig:"BLNK_QUEUE_HOT_QUEUE_NAME"`
@@ -381,6 +383,9 @@ func (cnf *Configuration) setQueueDefaults() {
 	}
 	if cnf.Queue.InflightExpiryQueue == "" {
 		cnf.Queue.InflightExpiryQueue = defaultQueue.InflightExpiryQueue
+	}
+	if cnf.Queue.InflightCommitQueue == "" {
+		cnf.Queue.InflightCommitQueue = defaultQueue.InflightCommitQueue
 	}
 	if cnf.Queue.NumberOfQueues == 0 {
 		cnf.Queue.NumberOfQueues = defaultQueue.NumberOfQueues

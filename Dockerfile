@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine as build-env
+FROM golang:1.26.1-alpine3.23 as build-env
 WORKDIR /go/src/blnk
 
 COPY . .

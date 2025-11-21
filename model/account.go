@@ -23,7 +23,7 @@ type Account struct {
 	Number     string                 `json:"number" form:"number"`
 	BankName   string                 `json:"bank_name"`
 	Currency   string                 `json:"currency"`
-	BalanceID  string                 `json:"balance_id" `
+	BalanceID  string                 `json:"balance_id"`
 	IdentityID string                 `json:"identity_id" form:"identity_id"`
 	LedgerID   string                 `json:"ledger_id"`
 	Ledger     *Ledger                `json:"ledger"`

@@ -578,8 +578,8 @@ func (l *Blnk) finalizeVoidTransaction(ctx context.Context, transaction *model.T
 	transaction.Hash = transaction.HashTxn()
 	model.ApplyPrecision(transaction)
 
-	transaction, err := l.RecordTransaction(ctx, transaction)
-	if err != nil {
+	// transaction, err := l.RecordTransaction(ctx, transaction)
+	if err := l.queue.Enqueue(ctx, transaction); err != nil {
 		span.RecordError(err)
 		return nil, l.logAndRecordError(span, "saving transaction to db error", err)
 	}
