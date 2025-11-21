@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"strings"
 
@@ -154,7 +155,8 @@ func (b *blnkInstance) processInflightExpiry(cxt context.Context, t *asynq.Task)
 	}
 
 	// Void the inflight transaction by its ID.
-	_, err := b.blnk.VoidInflightTransaction(cxt, txnID)
+	// _, err := b.blnk.VoidInflightTransaction(cxt, txnID)
+	_, err := b.blnk.CommitInflightTransaction(cxt, txnID, big.NewInt(0))
 	if err != nil {
 		return err
 	}
