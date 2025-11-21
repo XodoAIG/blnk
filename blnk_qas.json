@@ -1,0 +1,31 @@
+{
+  "project_name": "Blnk",
+  "data_source": {
+    "dns": "postgresql://postgres:postgres@192.168.15.8:5432/xa_fleet?sslmode=disable",
+    "max_open_conns": 25,
+    "max_idle_conns": 10,
+    "conn_max_lifetime": 30,
+    "conn_max_idle_time": 5
+  },
+  "tokenization_secret": "Q9mJ7pRw4kL2sV8zF1tD6bN0xYcH5aPe",
+  "redis": {
+    "dns": "192.168.15.8:6379",
+    "skip_tls_verify": true
+  },
+  "server": {
+    "port": "5001",
+    "secret_key": "YXBpLWtleS14YS1mbGVldC1zZXJ2ZXItcTF3MmUzCg==",
+    "secure": true
+  },
+  "typesense": {
+    "dns": "http://192.168.15.8:8108"
+  },
+  "type_sense_key": "YXBpLWtleS1ibG5rLXR5cGVzZW5zZS10by14YS1mbGVldC1zZXJ2ZXIK",
+  "enable_telemetry": false,
+  "enable_observability": false,
+  "EnableTelemetry": false,
+  "EnableObservability": false,
+  "rate_limit": {
+    "cleanup_interval_sec": 2
+  }
+}

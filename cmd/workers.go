@@ -19,21 +19,24 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/posthog/posthog-go"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/typesense/typesense-go/typesense/api"
 	"go.opentelemetry.io/otel"
 
 	"github.com/blnkfinance/blnk"
 	"github.com/blnkfinance/blnk/config"
-	"github.com/blnkfinance/blnk/internal/notification"
 	redis_db "github.com/blnkfinance/blnk/internal/redis-db"
 	"github.com/blnkfinance/blnk/internal/search"
 	"github.com/blnkfinance/blnk/model"
@@ -66,7 +69,6 @@ func (b *blnkInstance) processTransaction(ctx context.Context, t *asynq.Task) er
 	if err != nil {
 		// Handle reference already used error
 		if strings.Contains(strings.ToLower(err.Error()), "reference") && strings.Contains(strings.ToLower(err.Error()), "already been used") {
-			notification.NotifyError(err)
 			return nil
 		}
 
@@ -194,9 +196,45 @@ func (b *blnkInstance) processInflightExpiry(cxt context.Context, t *asynq.Task)
 		return err
 	}
 
-	// Void the inflight transaction by its ID.
-	_, err := b.blnk.VoidInflightTransaction(cxt, txnID)
+	filterBy := "status:REJECTED"
+	pp := 1
+	searchParams := &api.SearchCollectionParams{
+		Q:        txnID,
+		QueryBy:  "parent_transaction",
+		FilterBy: &filterBy,
+		PerPage:  &pp,
+	}
+
+	results, err := b.blnk.Search("transactions", searchParams)
 	if err != nil {
+		logrus.Error(err)
+		return err
+	}
+
+	searchResult, ok := results.(*api.SearchResult)
+	if !ok {
+		errConv := errors.New("failed to convert search results to SearchResult type")
+		logrus.Error(errConv)
+		return errConv
+	}
+
+	if *searchResult.Found == 1 {
+		_, err = b.blnk.VoidInflightTransaction(cxt, txnID)
+		if err != nil {
+			logrus.Error(err)
+			return err
+		}
+		fmt.Println("void ", txnID)
+		return nil
+	}
+
+	// TODO: changes the original implementation
+	// Void the inflight transaction by its ID.
+	// _, err := b.blnk.VoidInflightTransaction(cxt, txnID) // original
+	// _, err = b.blnk.CommitInflightTransactionWithQueue(cxt, txnID, big.NewInt(0))
+	_, err = b.blnk.CommitInflightTransaction(cxt, txnID, big.NewInt(0))
+	if err != nil {
+		logrus.Error(err)
 		return err
 	}
 
@@ -335,7 +373,9 @@ func workerCommands(b *blnkInstance) *cobra.Command {
 				}()
 			}
 			if phClient != nil {
-				defer phClient.Close()
+				defer func(phClient posthog.Client) {
+					_ = phClient.Close()
+				}(phClient)
 			}
 
 			srv, webhookSrv, mux, webhookMux, err := setupWorkerServers(b, conf)
@@ -348,8 +388,11 @@ func workerCommands(b *blnkInstance) *cobra.Command {
 			if err := srv.Start(mux); err != nil {
 				log.Fatalf("could not start transaction worker server: %v", err)
 			}
-			if err := webhookSrv.Start(webhookMux); err != nil {
-				log.Fatalf("could not start webhook worker server: %v", err)
+			// Ensure transaction server shuts down gracefully when the webhook server (blocking) exits
+			defer srv.Shutdown()
+
+			if err = webhookSrv.Run(webhookMux); err != nil {
+				log.Fatalf("could not run webhook worker server: %v", err)
 			}
 
 			recoveryProcessor := blnk.NewQueuedTransactionRecoveryProcessor(b.blnk)

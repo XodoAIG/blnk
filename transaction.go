@@ -346,7 +346,7 @@ func (l *Blnk) validateTxn(ctx context.Context, transaction *model.Transaction) 
 
 	// If the transaction reference already exists, return an error
 	if txn {
-		err := fmt.Errorf("reference %s has already been used", transaction.Reference)
+		err = fmt.Errorf("reference %s has already been used", transaction.Reference)
 		span.RecordError(err)
 		return err
 	}
@@ -525,21 +525,21 @@ func (l *Blnk) ProcessTransactionInBatches(ctx context.Context, parentTransactio
 
 		span.AddEvent("Processed all transactions in batches")
 		return allTxns, nil
-	} else {
-		var wg sync.WaitGroup
-		// Stream mode: just fetch transactions and send to jobs channel
-		errChan := make(chan error, 1)
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			fetchTransactions(ctx, parentTransactionID, batchSize, gt, jobs, errChan)
-		}()
-
-		wg.Wait()
-		span.AddEvent("Processed all transactions in streaming mode")
-		return nil, nil
 	}
+
+	var wg2 sync.WaitGroup
+	// Stream mode: just fetch transactions and send to jobs channel
+	errChan := make(chan error, 1)
+
+	wg2.Add(1)
+	go func() {
+		defer wg2.Done()
+		fetchTransactions(ctx, parentTransactionID, batchSize, gt, jobs, errChan)
+	}()
+
+	wg2.Wait()
+	span.AddEvent("Processed all transactions in streaming mode")
+	return nil, nil
 }
 
 // processResults processes the results from the results channel, collecting transactions and errors.
@@ -617,7 +617,7 @@ func fetchTransactions(ctx context.Context, parentTransactionID string, batchSiz
 				case jobs <- txn: // Send the transaction to be processed
 				case <-ctx.Done():
 					// If context is canceled, handle gracefully
-					err := ctx.Err()
+					err = ctx.Err()
 					if err != nil {
 						errChan <- err
 						span.RecordError(err)
@@ -1098,7 +1098,7 @@ func (l *Blnk) CommitInflightTransaction(ctx context.Context, transactionID stri
 	}
 
 	// Validate and update the transaction amount
-	if err := l.validateAndUpdateAmount(ctx, transaction, amount); err != nil {
+	if err = l.validateAndUpdateAmount(ctx, transaction, amount); err != nil {
 		span.RecordError(err)
 		return nil, err
 	}
@@ -1374,7 +1374,7 @@ func (l *Blnk) VoidInflightTransaction(ctx context.Context, transactionID string
 	}
 
 	if amountLeft.Cmp(big.NewInt(0)) == 0 {
-		err := errors.New("cannot void. Transaction already committed")
+		err = errors.New("cannot void. Transaction already committed")
 		span.RecordError(err)
 		return transaction, err
 	}
@@ -1412,7 +1412,7 @@ func (l *Blnk) fetchAndValidateInflightTransaction(ctx context.Context, transact
 
 	// Attempt to retrieve the transaction from the database
 	dbTransaction, err := l.datasource.GetTransaction(ctx, transactionID)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		// If not found in the database, attempt to retrieve from the queue
 		queuedTxn, err := l.queue.GetTransactionFromQueue(transactionID)
 		log.Println("found inflight transaction in queue using it for commit/void", transactionID, queuedTxn.TransactionID)
@@ -1435,7 +1435,7 @@ func (l *Blnk) fetchAndValidateInflightTransaction(ctx context.Context, transact
 
 	// Validate the transaction status using the helper function
 	if !IsInflightTransaction(transaction) {
-		err := fmt.Errorf("transaction is not in inflight status")
+		err = fmt.Errorf("transaction is not in inflight status")
 		span.RecordError(err)
 		return nil, err
 	}
@@ -1448,7 +1448,7 @@ func (l *Blnk) fetchAndValidateInflightTransaction(ctx context.Context, transact
 	}
 
 	if parentVoided {
-		err := fmt.Errorf("transaction has already been voided")
+		err = fmt.Errorf("transaction has already been voided")
 		span.RecordError(err)
 		return nil, err
 	}
@@ -1577,7 +1577,7 @@ func (l *Blnk) QueueTransaction(ctx context.Context, transaction *model.Transact
 
 	// If SkipQueue is true, process synchronously
 	if transaction.SkipQueue {
-		_, err := l.processTxns(ctx, transaction, transactions, originalTxnID, originalRef)
+		_, err = l.processTxns(ctx, transaction, transactions, originalTxnID, originalRef)
 		if err != nil {
 			span.RecordError(err)
 			return nil, err
@@ -1680,20 +1680,20 @@ func (l *Blnk) processTxns(ctx context.Context, originalTxn *model.Transaction, 
 				return nil, err
 			}
 			return []*model.Transaction{recorded}, nil
-		} else {
-			result := make([]*model.Transaction, len(splitTxns))
-			for i, txn := range splitTxns {
-				recorded, err := l.RecordTransaction(ctx, txn)
-				if err != nil {
-					if txn.Atomic {
-						l.handleAsyncBulkTransactionFailure(ctx, err, originalTxnID, true, txn.Inflight)
-					}
-					return nil, fmt.Errorf("failed to record split transaction %d: %w", i, err)
-				}
-				result[i] = recorded
-			}
-			return result, nil
 		}
+
+		result := make([]*model.Transaction, len(splitTxns))
+		for i, txn := range splitTxns {
+			recorded, err := l.RecordTransaction(ctx, txn)
+			if err != nil {
+				if txn.Atomic {
+					l.handleAsyncBulkTransactionFailure(ctx, err, originalTxnID, true, txn.Inflight)
+				}
+				return nil, fmt.Errorf("failed to record split transaction %d: %w", i, err)
+			}
+			result[i] = recorded
+		}
+		return result, nil
 	}
 	if len(splitTxns) == 0 {
 		return l.processSingleTransaction(ctx, originalTxn, originalRef)
@@ -2032,7 +2032,7 @@ func (l *Blnk) getOriginalTransactionForRefund(ctx context.Context, transactionI
 				return nil, fmt.Errorf("transaction %s not found in DB or queue: %w", transactionID, err)
 			}
 			if queuedTxn == nil {
-				err := fmt.Errorf("transaction %s not found in DB or queue", transactionID)
+				err = fmt.Errorf("transaction %s not found in DB or queue", transactionID)
 				span.RecordError(err)
 				return nil, err
 			}
@@ -2121,7 +2121,7 @@ func (l *Blnk) RefundTransaction(ctx context.Context, transactionID string, skip
 	}
 
 	// 2. Validate if the transaction can be refunded
-	if err := l.validateTransactionForRefund(ctx, originalTxn); err != nil {
+	if err = l.validateTransactionForRefund(ctx, originalTxn); err != nil {
 		span.RecordError(err)
 		return nil, err // Error includes context from the helper function
 	}
