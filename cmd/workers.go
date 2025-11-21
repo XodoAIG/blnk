@@ -20,12 +20,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/posthog/posthog-go"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel"
@@ -257,8 +259,34 @@ func (b *blnkInstance) indexBatchData(ctx context.Context, t *asynq.Task) error 
 	return nil
 }
 
-// processInflightExpiry handles the expiry of inflight transactions.
-// It voids the transaction by its ID and logs the action.
+/*
+TODO: Alteração no fluxo de Inflight
+ 1. Buscar transações filhas com status REJECTED via Search API e se existir rejeição, anular a transação pai (void).
+    Se não houver rejeição, aplica o commit na transação.
+ 2. Valor big.NewInt(0) é passado para o método de commit para indicar que a transação deve ter o commit sem alterações no valor.
+ 3. Função original era VoidInflightTransaction, mas foi alterada para CommitInflightTransaction para seguir o novo fluxo de inflight.
+
+--
+processInflightExpiry handles the expiry of inflight transactions.
+It voids the transaction by its ID and logs the action.
+*/
+func (b *blnkInstance) processInflightCommit(ctx context.Context, t *asynq.Task) error {
+	var txnID string
+	if err := json.Unmarshal(t.Payload(), &txnID); err != nil {
+		logrus.Error(err)
+		return err
+	}
+
+	_, err := b.blnk.CommitInflightTransaction(ctx, txnID, big.NewInt(0))
+	if err != nil {
+		logrus.Error(err)
+		return err
+	}
+
+	logrus.Printf(" [*] Inflight Transaction Auto-Committed %s", txnID)
+	return nil
+}
+
 func (b *blnkInstance) processInflightExpiry(cxt context.Context, t *asynq.Task) error {
 	var txnID string
 	// Unmarshal the transaction ID from the task payload.
@@ -267,9 +295,42 @@ func (b *blnkInstance) processInflightExpiry(cxt context.Context, t *asynq.Task)
 		return err
 	}
 
-	// Void the inflight transaction by its ID.
+	// filterBy := "status:REJECTED"
+	// pp := 1
+	// searchParams := &api.SearchCollectionParams{
+	// 	Q:        txnID,
+	// 	QueryBy:  "parent_transaction",
+	// 	FilterBy: &filterBy,
+	// 	PerPage:  &pp,
+	// }
+
+	// results, err := b.blnk.Search("transactions", searchParams)
+	// if err != nil {
+	// 	logrus.Error(err)
+	// 	return err
+	// }
+
+	// searchResult, ok := results.(*api.SearchResult)
+	// if !ok {
+	// 	errConv := errors.New("failed to convert search results to SearchResult type")
+	// 	logrus.Error(errConv)
+	// 	return errConv
+	// }
+
+	// if *searchResult.Found == 1 {
+	// 	_, err = b.blnk.VoidInflightTransaction(cxt, txnID)
+	// 	if err != nil {
+	// 		logrus.Error(err)
+	// 		return err
+	// 	}
+	// 	logrus.Infof(" [*] Inflight Transaction Voided %s", txnID)
+	// 	return nil
+	// }
+	// _, err = b.blnk.CommitInflightTransaction(cxt, txnID, big.NewInt(0))
+
 	_, err := b.blnk.VoidInflightTransaction(cxt, txnID)
 	if err != nil {
+		logrus.Error(err)
 		return err
 	}
 
@@ -286,6 +347,7 @@ func initializeQueues() map[string]int {
 
 	queues := make(map[string]int)
 	queues[cfg.Queue.InflightExpiryQueue] = 1
+	queues[cfg.Queue.InflightCommitQueue] = 1
 
 	for i := 1; i <= cfg.Queue.NumberOfQueues; i++ {
 		queueName := fmt.Sprintf("%s_%d", cfg.Queue.TransactionQueue, i)
@@ -403,7 +465,12 @@ func initializeTaskHandlers(b *blnkInstance, mux *asynq.ServeMux) {
 	if cfg.Queue.EnableHotLane {
 		mux.HandleFunc(cfg.Queue.HotQueueName, b.processTransaction)
 	}
-	mux.HandleFunc(cfg.Queue.InflightExpiryQueue, b.processInflightExpiry)
+	if cfg.Queue.InflightExpiryQueue != "" {
+		mux.HandleFunc(cfg.Queue.InflightExpiryQueue, b.processInflightExpiry)
+	}
+	if cfg.Queue.InflightCommitQueue != "" {
+		mux.HandleFunc(cfg.Queue.InflightCommitQueue, b.processInflightCommit)
+	}
 }
 
 func initializeWebhookTaskHandlers(b *blnkInstance, mux *asynq.ServeMux) {
@@ -448,7 +515,9 @@ func workerCommands(b *blnkInstance) *cobra.Command {
 				}()
 			}
 			if phClient != nil {
-				defer phClient.Close()
+				defer func(phClient posthog.Client) {
+					_ = phClient.Close()
+				}(phClient)
 			}
 
 			srv, hotSrv, webhookSrv, mux, webhookMux, err := setupWorkerServers(b, conf)

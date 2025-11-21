@@ -15,84 +15,58 @@ version: "3.8"
 
 services:
   server:
-    image: ${PETROPIX_IMAGE:-481255523699.dkr.ecr.us-east-1.amazonaws.com/blnk-petropix:v1.0.3-qas}
-    container_name: server
+#    image: ${PETROPIX_IMAGE:-481255523699.dkr.ecr.us-east-1.amazonaws.com/blnk-petropix:v1.0.0-prd}
+    image: ${PETROPIX_IMAGE}:${VERSION}-${APP_ENV}
+    container_name: server-${APP_ENV}
     restart: on-failure
     entrypoint: ["/bin/sh", "-c"]
     command:
       - "blnk migrate up && blnk start"
     environment:
       TZ: ${TZ:-Etc/UTC}
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
       - "5001:5001"
-      - "80:80"
-      - "443:443"
     depends_on:
       - redis
+    env_file:
+      - .env
     volumes:
       - ./blnk.json:/blnk.json
-    networks:
-      - blnk-net
 
   worker:
-    image: ${PETROPIX_IMAGE:-481255523699.dkr.ecr.us-east-1.amazonaws.com/blnk-petropix:v1.0.3-qas}
-    container_name: worker
+#    image: ${PETROPIX_IMAGE:-481255523699.dkr.ecr.us-east-1.amazonaws.com/blnk-petropix:v1.0.0-prd}
+    image: ${PETROPIX_IMAGE}:${VERSION}-${APP_ENV}
+    container_name: worker-${APP_ENV}
     restart: on-failure
     entrypoint: ["blnk", "workers"]
-    environment:
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
       - "5004:5004"
     depends_on:
       - redis
+    env_file:
+      - .env
     volumes:
       - ./blnk.json:/blnk.json
-    networks:
-      - blnk-net
 
   redis:
     image: redis:7.2.4
-    container_name: redis-dev
+    container_name: redis-${APP_ENV}
     restart: on-failure
-    ports:
-      - "6379:6379"
-    networks:
-      - blnk-net
+    env_file:
+      - .env
 
   typesense:
     image: typesense/typesense:29.0
-    container_name: typesense
-    command: "--data-dir /data --api-key=YXBpLWtleS1ibG5rLXR5cGVzZW5zZS10by14YS1mbGVldC1zZXJ2ZXIK --listen-port 8108 --enable-cors"
+    container_name: typesense-${APP_ENV}
+    restart: on-failure
     environment:
       TYPESENSE_DATA_DIR: /data
-      TYPESENSE_HOST: http://192.168.15.8:8108
+      TYPESENSE_HOST: http://typesense-prd:8108
       TYPESENSE_API_KEY: YXBpLWtleS1ibG5rLXR5cGVzZW5zZS10by14YS1mbGVldC1zZXJ2ZXIK
-    volumes:
-      - ./typesense_data:/data
     ports:
       - "8108:8108"
-    logging:
-      driver: "none"
-    networks:
-      - blnk-net
-
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: prometheus
-    profiles:
-      - monitoring
-    ports:
-      - "9090:9090"
+    env_file:
+      - .env
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    depends_on:
-      - server
-      - worker
-
-volumes:
-  typesense_data:
-
-networks:
-  blnk-net:
-    driver: bridge
+      - ./typesense_data:/data
+    command: "--data-dir /data --api-key=YXBpLWtleS1ibG5rLXR5cGVzZW5zZS10by14YS1mbGVldC1zZXJ2ZXIK --listen-port 8108 --enable-cors"

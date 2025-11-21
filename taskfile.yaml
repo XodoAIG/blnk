@@ -1,0 +1,72 @@
+version: "3"
+
+tasks:
+  default:
+    desc: "Build the app"
+    cmds:
+      - echo "Build task executed"
+
+  redis-typesense:
+    desc: "Run Redis and Typesense services"
+    cmds:
+      - echo "Starting development environment..."
+      - docker compose -f docker-compose.dev.yaml down
+      - docker compose -f docker-compose.dev.yaml up -d redis typesense
+
+  server:
+    desc: "Server runner"
+    deps: [redis-typesense]
+    cmds:
+      - go run ./cmd migrate up
+      - echo "Migration completed and apply seed data if necessary"
+      - go run ./cmd start
+
+  workers:
+    desc: "Workers runner"
+    deps: [redis-typesense]
+    cmds:
+      - go run ./cmd start
+
+  rebase:
+    desc: "Rebase the main branch with upstream"
+    cmds:
+      - git fetch upstream
+      - git checkout main
+      - git rebase upstream/main
+
+  upstream:
+    desc: "Add upstream remote"
+    cmds:
+      - git remote add upstream git@github.com:blnkfinance/blnk.git
+      - echo git remote -v
+      - task rebase
+
+  docker-qas:
+    desc: "rodando ambiente de qas local"
+    dir: docker-qas
+    cmds:
+      - docker compose up -d
+
+  docker-prd:
+    desc: "rodando ambiente de prod local"
+    dir: docker-prd
+    cmds:
+      - docker compose up -d
+
+  deploy_qas:
+    desc: "Deploy blnk petropix qas"
+    dotenv: [".env.qas"]
+    cmds:
+      - cmd: docker run --privileged --rm tonistiigi/binfmt --install all
+        platforms: [linux]
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $URL_ECR
+      - docker buildx build --build-arg APP_ENV=$APP_ENV --platform linux/arm64 --rm --push -t $URL_ECR/$REPO_ECR:$VERSION-$APP_ENV .
+
+  deploy_prd:
+    desc: "Deploy blnk petropix prod"
+    dotenv: [".env.prd"]
+    cmds:
+      - cmd: docker run --privileged --rm tonistiigi/binfmt --install all
+        platforms: [linux]
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $URL_ECR
+      - docker buildx build --build-arg APP_ENV=$APP_ENV --platform linux/arm64 --rm --push -t $URL_ECR/$REPO_ECR:$VERSION-$APP_ENV .

@@ -97,6 +97,30 @@ func (q *Queue) queueInflightExpiry(transactionID string, expiresAt time.Time) e
 	return nil
 }
 
+// TODO:
+func (q *Queue) queueInflightCommit(transactionID string, commitAt time.Time) error {
+	IPayload, err := json.Marshal(transactionID)
+	if err != nil {
+		return err
+	}
+
+	taskOptions := []asynq.Option{
+		asynq.TaskID(transactionID),
+		asynq.Queue(q.config.Queue.InflightCommitQueue),
+		asynq.ProcessIn(time.Until(commitAt)),
+	}
+
+	task := asynq.NewTask(q.config.Queue.InflightCommitQueue, IPayload, taskOptions...)
+	_, err = q.Client.Enqueue(task)
+	if err != nil {
+		logrus.WithError(err).WithField("transaction_id", transactionID).Error("failed to enqueue inflight commit")
+		return err
+	}
+
+	logrus.WithField("transaction_id", transactionID).Debug("successfully enqueued inflight commit")
+	return nil
+}
+
 // queueIndexBatch enqueues a batch of items to be indexed in dependency order.
 // This ensures that dependencies (e.g., balances) are indexed before the primary item (e.g., transaction).
 // Uses the same IndexQueue but with a different task type for routing.
@@ -207,6 +231,15 @@ func (q *Queue) Enqueue(ctx context.Context, transaction *model.Transaction) err
 func (q *Queue) QueueInflightExpiry(ctx context.Context, transaction *model.Transaction) error {
 	if !transaction.InflightExpiryDate.IsZero() {
 		return q.queueInflightExpiry(transaction.TransactionID, transaction.InflightExpiryDate)
+	}
+	return nil
+}
+
+// TODO:
+// QueueInflightCommit schedules an automatic commit for an inflight transaction at the specified date.
+func (q *Queue) QueueInflightCommit(ctx context.Context, transaction *model.Transaction) error {
+	if !transaction.InflightCommitDate.IsZero() {
+		return q.queueInflightCommit(transaction.TransactionID, transaction.InflightCommitDate)
 	}
 	return nil
 }
