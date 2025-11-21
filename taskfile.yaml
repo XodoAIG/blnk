@@ -1,0 +1,25 @@
+version: "3"
+
+tasks:
+  default:
+    desc: "Build the app"
+    cmds:
+      - echo "Build task executed"
+
+  deploy_qas:
+    desc: "deploy blnk petropix QAS"
+    dotenv: [".env.qas"]
+    cmds:
+      - cmd: docker run --privileged --rm tonistiigi/binfmt --install all
+        platforms: [linux]
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $URL_ECR
+      - docker buildx build --build-arg APP_ENV=$APP_ENV --platform linux/arm64 --rm --push -t $URL_ECR/$REPO_ECR:$VERSION-$APP_ENV .
+
+  deploy_prd:
+    desc: "deploy blnk petropix PRD"
+    dotenv: [".env.prd"]
+    cmds:
+      - cmd: docker run --privileged --rm tonistiigi/binfmt --install all
+        platforms: [linux]
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $URL_ECR
+      - docker buildx build --build-arg APP_ENV=$APP_ENV --platform linux/arm64 --rm --push -t $URL_ECR/$REPO_ECR:$VERSION-$APP_ENV .
