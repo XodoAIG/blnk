@@ -6,6 +6,17 @@ tasks:
     cmds:
       - echo "Build task executed"
 
+  dev:
+    desc: "deploy blnk petropix QAS"
+    dotenv: [".env.qas"]
+    cmds:
+      - echo "Starting development environment..."
+      - docker compose -f docker-compose.dev.yaml down
+      - echo "Building development environment without cache..."
+      - docker compose -f docker-compose.dev.yaml build --no-cache
+      - echo "Bringing up development environment..."
+      - docker compose -f docker-compose.dev.yaml up
+
   deploy_qas:
     desc: "deploy blnk petropix QAS"
     dotenv: [".env.qas"]
