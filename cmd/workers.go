@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/typesense/typesense-go/typesense/api"
 	"go.opentelemetry.io/otel"
 
 	"github.com/blnkfinance/blnk"
@@ -155,10 +157,44 @@ func (b *blnkInstance) processInflightExpiry(cxt context.Context, t *asynq.Task)
 		return err
 	}
 
-	// Void the inflight transaction by its ID.
-	// _, err := b.blnk.VoidInflightTransaction(cxt, txnID)
-	_, err := b.blnk.CommitInflightTransaction(cxt, txnID, big.NewInt(0))
+	filterBy := "status:REJECTED"
+	pp := 1
+	searchParams := &api.SearchCollectionParams{
+		Q:        txnID,
+		QueryBy:  "parent_transaction",
+		FilterBy: &filterBy,
+		PerPage:  &pp,
+	}
+
+	results, err := b.blnk.Search("transactions", searchParams)
 	if err != nil {
+		logrus.Error(err)
+		return err
+	}
+
+	searchResult, ok := results.(*api.SearchResult)
+	if !ok {
+		errConv := errors.New("failed to convert search results to SearchResult type")
+		logrus.Error(errConv)
+		return errConv
+	}
+
+	if *searchResult.Found == 1 {
+		_, err = b.blnk.VoidInflightTransaction(cxt, txnID)
+		if err != nil {
+			logrus.Error(err)
+			return err
+		}
+		fmt.Println("void ", txnID)
+		return nil
+	}
+
+	// TODO: changes the original implementation
+	// Void the inflight transaction by its ID.
+	// _, err := b.blnk.VoidInflightTransaction(cxt, txnID) // original
+	_, err = b.blnk.CommitInflightTransactionWithQueue(cxt, txnID, big.NewInt(0))
+	if err != nil {
+		logrus.Error(err)
 		return err
 	}
 

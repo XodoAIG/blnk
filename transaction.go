@@ -17,38 +17,38 @@ limitations under the License.
 package blnk
 
 import (
-	"context"
-	"database/sql"
-	"errors"
-	"fmt"
-	"log"
-	"math/big"
-	"strings"
-	"sync"
-	"time"
+  "context"
+  "database/sql"
+  "errors"
+  "fmt"
+  "log"
+  "math/big"
+  "strings"
+  "sync"
+  "time"
 
-	"github.com/blnkfinance/blnk/config"
-	redlock "github.com/blnkfinance/blnk/internal/lock"
-	"github.com/blnkfinance/blnk/internal/notification"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
+  "github.com/blnkfinance/blnk/config"
+  redlock "github.com/blnkfinance/blnk/internal/lock"
+  "github.com/blnkfinance/blnk/internal/notification"
+  "go.opentelemetry.io/otel/attribute"
+  "go.opentelemetry.io/otel/trace"
 
-	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
+  "github.com/sirupsen/logrus"
+  "go.opentelemetry.io/otel"
 
-	"github.com/blnkfinance/blnk/model"
+  "github.com/blnkfinance/blnk/model"
 )
 
 var tracer = otel.Tracer("blnk.transactions")
 
 const (
-	StatusQueued    = "QUEUED"
-	StatusApplied   = "APPLIED"
-	StatusScheduled = "SCHEDULED"
-	StatusInflight  = "INFLIGHT"
-	StatusVoid      = "VOID"
-	StatusCommit    = "COMMIT"
-	StatusRejected  = "REJECTED"
+  StatusQueued    = "QUEUED"
+  StatusApplied   = "APPLIED"
+  StatusScheduled = "SCHEDULED"
+  StatusInflight  = "INFLIGHT"
+  StatusVoid      = "VOID"
+  StatusCommit    = "COMMIT"
+  StatusRejected  = "REJECTED"
 )
 
 // getTxns is a function type that retrieves a batch of transactions based on the parent transaction ID, batch size, and offset.
@@ -80,8 +80,8 @@ type transactionWorker func(ctx context.Context, jobs <-chan *model.Transaction,
 // - Txn *model.Transaction: A pointer to the processed Transaction model.
 // - Error error: An error if the transaction could not be processed.
 type BatchJobResult struct {
-	Txn   *model.Transaction
-	Error error
+  Txn   *model.Transaction
+  Error error
 }
 
 // getSourceAndDestination retrieves the source and destination balances for a transaction.
@@ -98,70 +98,70 @@ type BatchJobResult struct {
 // - destination *model.Balance: A pointer to the destination Balance model.
 // - err error: An error if the balances could not be retrieved.
 func (l *Blnk) getSourceAndDestination(ctx context.Context, transaction *model.Transaction) (source *model.Balance, destination *model.Balance, err error) {
-	ctx, span := tracer.Start(ctx, "GetSourceAndDestination")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "GetSourceAndDestination")
+  defer span.End()
 
-	var sourceBalance, destinationBalance *model.Balance
+  var sourceBalance, destinationBalance *model.Balance
 
-	// Get configuration to check if queued checks are enabled
-	cfg, err := config.Fetch()
-	if err != nil {
-		span.RecordError(err)
-		logrus.Errorf("failed to fetch config: %v", err)
-		return nil, nil, err
-	}
+  // Get configuration to check if queued checks are enabled
+  cfg, err := config.Fetch()
+  if err != nil {
+    span.RecordError(err)
+    logrus.Errorf("failed to fetch config: %v", err)
+    return nil, nil, err
+  }
 
-	// Check if Source starts with "@"
-	if strings.HasPrefix(transaction.Source, "@") {
-		sourceBalance, err = l.getOrCreateBalanceByIndicator(ctx, transaction.Source, transaction.Currency)
-		if err != nil {
-			span.RecordError(err)
-			logrus.Errorf("source error %v", err)
-			return nil, nil, err
-		}
-		// Update transaction source with the balance ID
-		transaction.Source = sourceBalance.BalanceID
-		span.SetAttributes(attribute.String("source.balance_id", sourceBalance.BalanceID))
-	} else {
-		// Use GetBalanceByID with queued checks if enabled, otherwise use lite version
-		if cfg.Transaction.EnableQueuedChecks {
-			sourceBalance, err = l.datasource.GetBalanceByID(transaction.Source, []string{}, true)
-		} else {
-			sourceBalance, err = l.datasource.GetBalanceByIDLite(transaction.Source)
-		}
-		if err != nil {
-			span.RecordError(err)
-			logrus.Errorf("source error %v", err)
-			return nil, nil, err
-		}
-	}
+  // Check if Source starts with "@"
+  if strings.HasPrefix(transaction.Source, "@") {
+    sourceBalance, err = l.getOrCreateBalanceByIndicator(ctx, transaction.Source, transaction.Currency)
+    if err != nil {
+      span.RecordError(err)
+      logrus.Errorf("source error %v", err)
+      return nil, nil, err
+    }
+    // Update transaction source with the balance ID
+    transaction.Source = sourceBalance.BalanceID
+    span.SetAttributes(attribute.String("source.balance_id", sourceBalance.BalanceID))
+  } else {
+    // Use GetBalanceByID with queued checks if enabled, otherwise use lite version
+    if cfg.Transaction.EnableQueuedChecks {
+      sourceBalance, err = l.datasource.GetBalanceByID(transaction.Source, []string{}, true)
+    } else {
+      sourceBalance, err = l.datasource.GetBalanceByIDLite(transaction.Source)
+    }
+    if err != nil {
+      span.RecordError(err)
+      logrus.Errorf("source error %v", err)
+      return nil, nil, err
+    }
+  }
 
-	// Check if Destination starts with "@"
-	if strings.HasPrefix(transaction.Destination, "@") {
-		destinationBalance, err = l.getOrCreateBalanceByIndicator(ctx, transaction.Destination, transaction.Currency)
-		if err != nil {
-			span.RecordError(err)
-			logrus.Errorf("destination error %v", err)
-			return nil, nil, err
-		}
-		// Update transaction destination with the balance ID
-		transaction.Destination = destinationBalance.BalanceID
-		span.SetAttributes(attribute.String("destination.balance_id", destinationBalance.BalanceID))
-	} else {
-		// Use GetBalanceByID with queued checks if enabled, otherwise use lite version
-		if cfg.Transaction.EnableQueuedChecks {
-			destinationBalance, err = l.datasource.GetBalanceByID(transaction.Destination, []string{}, true)
-		} else {
-			destinationBalance, err = l.datasource.GetBalanceByIDLite(transaction.Destination)
-		}
-		if err != nil {
-			span.RecordError(err)
-			logrus.Errorf("destination error %v", err)
-			return nil, nil, err
-		}
-	}
-	span.AddEvent("Retrieved source and destination balances")
-	return sourceBalance, destinationBalance, nil
+  // Check if Destination starts with "@"
+  if strings.HasPrefix(transaction.Destination, "@") {
+    destinationBalance, err = l.getOrCreateBalanceByIndicator(ctx, transaction.Destination, transaction.Currency)
+    if err != nil {
+      span.RecordError(err)
+      logrus.Errorf("destination error %v", err)
+      return nil, nil, err
+    }
+    // Update transaction destination with the balance ID
+    transaction.Destination = destinationBalance.BalanceID
+    span.SetAttributes(attribute.String("destination.balance_id", destinationBalance.BalanceID))
+  } else {
+    // Use GetBalanceByID with queued checks if enabled, otherwise use lite version
+    if cfg.Transaction.EnableQueuedChecks {
+      destinationBalance, err = l.datasource.GetBalanceByID(transaction.Destination, []string{}, true)
+    } else {
+      destinationBalance, err = l.datasource.GetBalanceByIDLite(transaction.Destination)
+    }
+    if err != nil {
+      span.RecordError(err)
+      logrus.Errorf("destination error %v", err)
+      return nil, nil, err
+    }
+  }
+  span.AddEvent("Retrieved source and destination balances")
+  return sourceBalance, destinationBalance, nil
 }
 
 // acquireLock acquires a distributed lock for a transaction to ensure exclusive access to the source balance.
@@ -175,22 +175,22 @@ func (l *Blnk) getSourceAndDestination(ctx context.Context, transaction *model.T
 // - *redlock.Locker: A pointer to the acquired Locker if successful.
 // - error: An error if the lock could not be acquired.
 func (l *Blnk) acquireLock(ctx context.Context, transaction *model.Transaction) (*redlock.Locker, error) {
-	ctx, span := tracer.Start(ctx, "Acquiring Lock")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "Acquiring Lock")
+  defer span.End()
 
-	config, err := config.Fetch()
-	if err != nil {
-		return nil, err
-	}
+  config, err := config.Fetch()
+  if err != nil {
+    return nil, err
+  }
 
-	locker := redlock.NewLocker(l.redis, transaction.Source, model.GenerateUUIDWithSuffix("loc"))
-	err = locker.Lock(ctx, config.Transaction.LockDuration)
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
-	span.AddEvent("Lock acquired")
-	return locker, nil
+  locker := redlock.NewLocker(l.redis, transaction.Source, model.GenerateUUIDWithSuffix("loc"))
+  err = locker.Lock(ctx, config.Transaction.LockDuration)
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
+  span.AddEvent("Lock acquired")
+  return locker, nil
 }
 
 // updateTransactionDetails updates the details of a transaction, including source and destination balances and status.
@@ -205,29 +205,29 @@ func (l *Blnk) acquireLock(ctx context.Context, transaction *model.Transaction) 
 // Returns:
 // - *model.Transaction: A pointer to the new transaction object with updated details.
 func (l *Blnk) updateTransactionDetails(ctx context.Context, transaction *model.Transaction, sourceBalance, destinationBalance *model.Balance) *model.Transaction {
-	_, span := tracer.Start(ctx, "Updating Transaction Details")
-	defer span.End()
+  _, span := tracer.Start(ctx, "Updating Transaction Details")
+  defer span.End()
 
-	// Create a new transaction object with updated details (immutable pattern)
-	newTransaction := *transaction // Copy the original transaction
-	newTransaction.Source = sourceBalance.BalanceID
-	newTransaction.Destination = destinationBalance.BalanceID
+  // Create a new transaction object with updated details (immutable pattern)
+  newTransaction := *transaction // Copy the original transaction
+  newTransaction.Source = sourceBalance.BalanceID
+  newTransaction.Destination = destinationBalance.BalanceID
 
-	// Update the status based on the current status and inflight flag
-	applicableStatus := map[string]string{
-		StatusQueued:    StatusApplied,
-		StatusApplied:   StatusApplied,
-		StatusScheduled: StatusApplied,
-		StatusCommit:    StatusApplied,
-		StatusVoid:      StatusVoid,
-	}
-	newTransaction.Status = applicableStatus[transaction.Status]
-	if transaction.Inflight {
-		newTransaction.Status = StatusInflight
-	}
+  // Update the status based on the current status and inflight flag
+  applicableStatus := map[string]string{
+    StatusQueued:    StatusApplied,
+    StatusApplied:   StatusApplied,
+    StatusScheduled: StatusApplied,
+    StatusCommit:    StatusApplied,
+    StatusVoid:      StatusVoid,
+  }
+  newTransaction.Status = applicableStatus[transaction.Status]
+  if transaction.Inflight {
+    newTransaction.Status = StatusInflight
+  }
 
-	span.AddEvent("Transaction details updated")
-	return &newTransaction
+  span.AddEvent("Transaction details updated")
+  return &newTransaction
 }
 
 // persistTransaction persists a transaction to the database.
@@ -243,24 +243,24 @@ func (l *Blnk) updateTransactionDetails(ctx context.Context, transaction *model.
 //     it returns the original transaction object that was passed in.
 //   - error: An error if the transaction could not be persisted (and was not discarded due to zero amount).
 func (l *Blnk) persistTransaction(ctx context.Context, transaction *model.Transaction) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "Persisting Transaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "Persisting Transaction")
+  defer span.End()
 
-	// Discard transaction if amount is 0
-	if transaction.PreciseAmount != nil && transaction.PreciseAmount.Cmp(big.NewInt(0)) == 0 {
-		span.AddEvent("Transaction with zero amount discarded, not persisted", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
-		return transaction, nil
-	}
+  // Discard transaction if amount is 0
+  if transaction.PreciseAmount != nil && transaction.PreciseAmount.Cmp(big.NewInt(0)) == 0 {
+    span.AddEvent("Transaction with zero amount discarded, not persisted", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
+    return transaction, nil
+  }
 
-	persistedTxn, err := l.datasource.RecordTransaction(ctx, transaction)
-	if err != nil {
-		span.RecordError(err)
-		logrus.Errorf("ERROR saving transaction to db. %s", err)
-		return nil, err
-	}
-	span.SetAttributes(attribute.String("transaction.id", persistedTxn.TransactionID))
-	span.AddEvent("Transaction persisted")
-	return persistedTxn, nil
+  persistedTxn, err := l.datasource.RecordTransaction(ctx, transaction)
+  if err != nil {
+    span.RecordError(err)
+    logrus.Errorf("ERROR saving transaction to db. %s", err)
+    return nil, err
+  }
+  span.SetAttributes(attribute.String("transaction.id", persistedTxn.TransactionID))
+  span.AddEvent("Transaction persisted")
+  return persistedTxn, nil
 }
 
 // postTransactionActions performs post-processing actions for a transaction.
@@ -270,31 +270,31 @@ func (l *Blnk) persistTransaction(ctx context.Context, transaction *model.Transa
 // - ctx context.Context: The context for the operation.
 // - transaction *model.Transaction: The transaction for which to perform post-processing actions.
 func (l *Blnk) postTransactionActions(ctx context.Context, transaction *model.Transaction) {
-	_, span := tracer.Start(ctx, "Post Transaction Actions")
-	defer span.End()
+  _, span := tracer.Start(ctx, "Post Transaction Actions")
+  defer span.End()
 
-	config, err := config.Fetch()
-	if err != nil {
-		span.RecordError(err)
-		return
-	}
+  config, err := config.Fetch()
+  if err != nil {
+    span.RecordError(err)
+    return
+  }
 
-	go func() {
-		err := l.queue.queueIndexData(transaction.TransactionID, config.Transaction.IndexQueuePrefix, transaction)
-		if err != nil {
-			span.RecordError(err)
-			notification.NotifyError(err)
-		}
-		err = l.SendWebhook(NewWebhook{
-			Event:   getEventFromStatus(transaction.Status),
-			Payload: transaction,
-		})
-		if err != nil {
-			span.RecordError(err)
-			notification.NotifyError(err)
-		}
-		span.AddEvent("Post-transaction actions completed")
-	}()
+  go func() {
+    err := l.queue.queueIndexData(transaction.TransactionID, config.Transaction.IndexQueuePrefix, transaction)
+    if err != nil {
+      span.RecordError(err)
+      notification.NotifyError(err)
+    }
+    err = l.SendWebhook(NewWebhook{
+      Event:   getEventFromStatus(transaction.Status),
+      Payload: transaction,
+    })
+    if err != nil {
+      span.RecordError(err)
+      notification.NotifyError(err)
+    }
+    span.AddEvent("Post-transaction actions completed")
+  }()
 }
 
 // updateBalances updates the source and destination balances in the database.
@@ -309,39 +309,39 @@ func (l *Blnk) postTransactionActions(ctx context.Context, transaction *model.Tr
 // Returns:
 // - error: An error if the balances could not be updated.
 func (l *Blnk) updateBalances(ctx context.Context, sourceBalance, destinationBalance *model.Balance) error {
-	ctx, span := tracer.Start(ctx, "Updating Balances")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "Updating Balances")
+  defer span.End()
 
-	var wg sync.WaitGroup
+  var wg sync.WaitGroup
 
-	// Update the balances in the datasource
-	if err := l.datasource.UpdateBalances(ctx, sourceBalance, destinationBalance); err != nil {
-		span.RecordError(err)
-		return err
-	}
+  // Update the balances in the datasource
+  if err := l.datasource.UpdateBalances(ctx, sourceBalance, destinationBalance); err != nil {
+    span.RecordError(err)
+    return err
+  }
 
-	// Add two tasks to the wait group
-	wg.Add(2)
+  // Add two tasks to the wait group
+  wg.Add(2)
 
-	// Goroutine to check monitors and queue index data for the source balance
-	go func() {
-		defer wg.Done()
-		l.checkBalanceMonitors(ctx, sourceBalance)
-		l.queueBalanceForIndexing(ctx, sourceBalance.BalanceID, span)
-	}()
+  // Goroutine to check monitors and queue index data for the source balance
+  go func() {
+    defer wg.Done()
+    l.checkBalanceMonitors(ctx, sourceBalance)
+    l.queueBalanceForIndexing(ctx, sourceBalance.BalanceID, span)
+  }()
 
-	// Goroutine to check monitors and queue index data for the destination balance
-	go func() {
-		defer wg.Done()
-		l.checkBalanceMonitors(ctx, destinationBalance)
-		l.queueBalanceForIndexing(ctx, destinationBalance.BalanceID, span)
-	}()
+  // Goroutine to check monitors and queue index data for the destination balance
+  go func() {
+    defer wg.Done()
+    l.checkBalanceMonitors(ctx, destinationBalance)
+    l.queueBalanceForIndexing(ctx, destinationBalance.BalanceID, span)
+  }()
 
-	// Wait for both goroutines to complete
-	wg.Wait()
+  // Wait for both goroutines to complete
+  wg.Wait()
 
-	span.AddEvent("Balances updated")
-	return nil
+  span.AddEvent("Balances updated")
+  return nil
 }
 
 // queueBalanceForIndexing fetches the complete balance data (including metadata) and queues it for indexing.
@@ -352,19 +352,19 @@ func (l *Blnk) updateBalances(ctx context.Context, sourceBalance, destinationBal
 // - balanceID string: The ID of the balance to fetch and index.
 // - span trace.Span: The tracing span for error recording.
 func (l *Blnk) queueBalanceForIndexing(ctx context.Context, balanceID string, span trace.Span) {
-	// Fetch the complete balance data including metadata
-	completeBalance, err := l.datasource.GetBalanceByID(balanceID, []string{}, false)
-	if err != nil {
-		span.RecordError(err)
-		notification.NotifyError(err)
-		return
-	}
-	// Queue the complete balance data for indexing
-	err = l.queue.queueIndexData(balanceID, "balances", completeBalance)
-	if err != nil {
-		span.RecordError(err)
-		notification.NotifyError(err)
-	}
+  // Fetch the complete balance data including metadata
+  completeBalance, err := l.datasource.GetBalanceByID(balanceID, []string{}, false)
+  if err != nil {
+    span.RecordError(err)
+    notification.NotifyError(err)
+    return
+  }
+  // Queue the complete balance data for indexing
+  err = l.queue.queueIndexData(balanceID, "balances", completeBalance)
+  if err != nil {
+    span.RecordError(err)
+    notification.NotifyError(err)
+  }
 }
 
 // validateTxn validates a transaction by checking if its reference has already been used.
@@ -377,24 +377,24 @@ func (l *Blnk) queueBalanceForIndexing(ctx context.Context, balanceID string, sp
 // Returns:
 // - error: An error if the transaction reference has already been used or if there was an issue checking the reference.
 func (l *Blnk) validateTxn(ctx context.Context, transaction *model.Transaction) error {
-	ctx, span := tracer.Start(ctx, "Validating Transaction Reference")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "Validating Transaction Reference")
+  defer span.End()
 
-	// Check if a transaction with the same reference already exists
-	txn, err := l.datasource.TransactionExistsByRef(ctx, transaction.Reference)
-	if err != nil {
-		return err
-	}
+  // Check if a transaction with the same reference already exists
+  txn, err := l.datasource.TransactionExistsByRef(ctx, transaction.Reference)
+  if err != nil {
+    return err
+  }
 
-	// If the transaction reference already exists, return an error
-	if txn {
-		err := fmt.Errorf("reference %s has already been used", transaction.Reference)
-		span.RecordError(err)
-		return err
-	}
+  // If the transaction reference already exists, return an error
+  if txn {
+    err := fmt.Errorf("reference %s has already been used", transaction.Reference)
+    span.RecordError(err)
+    return err
+  }
 
-	span.AddEvent("Transaction validated")
-	return nil
+  span.AddEvent("Transaction validated")
+  return nil
 }
 
 // applyTransactionToBalances applies a transaction to the provided balances.
@@ -408,38 +408,38 @@ func (l *Blnk) validateTxn(ctx context.Context, transaction *model.Transaction) 
 // Returns:
 // - error: An error if the balances could not be updated.
 func (l *Blnk) applyTransactionToBalances(ctx context.Context, balances []*model.Balance, transaction *model.Transaction) error {
-	_, span := tracer.Start(ctx, "Applying Transaction to Balances")
-	defer span.End()
+  _, span := tracer.Start(ctx, "Applying Transaction to Balances")
+  defer span.End()
 
-	span.AddEvent("Calculating new balances")
+  span.AddEvent("Calculating new balances")
 
-	// Handle committed inflight transactions
-	if transaction.Status == StatusCommit {
-		balances[0].CommitInflightDebit(transaction)
-		balances[1].CommitInflightCredit(transaction)
-		span.AddEvent("Committed inflight balances")
-		return nil
-	}
+  // Handle committed inflight transactions
+  if transaction.Status == StatusCommit {
+    balances[0].CommitInflightDebit(transaction)
+    balances[1].CommitInflightCredit(transaction)
+    span.AddEvent("Committed inflight balances")
+    return nil
+  }
 
-	transactionAmount := transaction.PreciseAmount
+  transactionAmount := transaction.PreciseAmount
 
-	// Handle voided transactions
-	if transaction.Status == StatusVoid {
-		balances[0].RollbackInflightDebit(transactionAmount)
-		balances[1].RollbackInflightCredit(transactionAmount)
-		span.AddEvent("Rolled back inflight balances")
-		return nil
-	}
+  // Handle voided transactions
+  if transaction.Status == StatusVoid {
+    balances[0].RollbackInflightDebit(transactionAmount)
+    balances[1].RollbackInflightCredit(transactionAmount)
+    span.AddEvent("Rolled back inflight balances")
+    return nil
+  }
 
-	// Update balances for other transaction statuses
-	err := model.UpdateBalances(transaction, balances[0], balances[1])
-	if err != nil {
-		span.RecordError(err)
-		return err
-	}
+  // Update balances for other transaction statuses
+  err := model.UpdateBalances(transaction, balances[0], balances[1])
+  if err != nil {
+    span.RecordError(err)
+    return err
+  }
 
-	span.AddEvent("Balances updated")
-	return nil
+  span.AddEvent("Balances updated")
+  return nil
 }
 
 // GetInflightTransactionsByParentID retrieves inflight transactions by their parent transaction ID.
@@ -455,17 +455,17 @@ func (l *Blnk) applyTransactionToBalances(ctx context.Context, balances []*model
 // - []*model.Transaction: A slice of pointers to the retrieved Transaction models.
 // - error: An error if the transactions could not be retrieved.
 func (l *Blnk) GetInflightTransactionsByParentID(ctx context.Context, parentTransactionID string, batchSize int, offset int64) ([]*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "GetInflightTransactionsByParentID")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "GetInflightTransactionsByParentID")
+  defer span.End()
 
-	transactions, err := l.datasource.GetInflightTransactionsByParentID(ctx, parentTransactionID, batchSize, offset)
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
-	span.SetAttributes(attribute.String("parent_transaction_id", parentTransactionID))
-	span.AddEvent("Inflight transactions retrieved")
-	return transactions, nil
+  transactions, err := l.datasource.GetInflightTransactionsByParentID(ctx, parentTransactionID, batchSize, offset)
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
+  span.SetAttributes(attribute.String("parent_transaction_id", parentTransactionID))
+  span.AddEvent("Inflight transactions retrieved")
+  return transactions, nil
 }
 
 // GetRefundableTransactionsByParentID retrieves refundable transactions by their parent transaction ID.
@@ -481,17 +481,17 @@ func (l *Blnk) GetInflightTransactionsByParentID(ctx context.Context, parentTran
 // - []*model.Transaction: A slice of pointers to the retrieved Transaction models.
 // - error: An error if the transactions could not be retrieved.
 func (l *Blnk) GetRefundableTransactionsByParentID(ctx context.Context, parentTransactionID string, batchSize int, offset int64) ([]*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "GetRefundableTransactionsByParentID")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "GetRefundableTransactionsByParentID")
+  defer span.End()
 
-	transactions, err := l.datasource.GetRefundableTransactionsByParentID(ctx, parentTransactionID, batchSize, offset)
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
-	span.SetAttributes(attribute.String("parent_transaction_id", parentTransactionID))
-	span.AddEvent("Refundable transactions retrieved")
-	return transactions, nil
+  transactions, err := l.datasource.GetRefundableTransactionsByParentID(ctx, parentTransactionID, batchSize, offset)
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
+  span.SetAttributes(attribute.String("parent_transaction_id", parentTransactionID))
+  span.AddEvent("Refundable transactions retrieved")
+  return transactions, nil
 }
 
 // ProcessTransactionInBatches processes transactions in batches or streams them based on the provided mode.
@@ -510,84 +510,84 @@ func (l *Blnk) GetRefundableTransactionsByParentID(ctx context.Context, parentTr
 // - []*model.Transaction: A slice of pointers to the processed Transaction models.
 // - error: An error if the transactions could not be processed.
 func (l *Blnk) ProcessTransactionInBatches(ctx context.Context, parentTransactionID string, amount *big.Int, maxWorkers int, streamMode bool, gt getTxns, tw transactionWorker) ([]*model.Transaction, error) {
-	// Start a tracing span
-	ctx, span := tracer.Start(ctx, "ProcessTransactionInBatches")
-	defer span.End()
+  // Start a tracing span
+  ctx, span := tracer.Start(ctx, "ProcessTransactionInBatches")
+  defer span.End()
 
-	config, err := config.Fetch()
-	if err != nil {
-		return nil, err
-	}
+  config, err := config.Fetch()
+  if err != nil {
+    return nil, err
+  }
 
-	// Use configuration values
-	batchSize := config.Transaction.BatchSize
-	maxQueueSize := config.Transaction.MaxQueueSize
+  // Use configuration values
+  batchSize := config.Transaction.BatchSize
+  maxQueueSize := config.Transaction.MaxQueueSize
 
-	// Slice to collect all processed transactions and errors
-	var allTxns []*model.Transaction
-	var allErrors []error
-	var mu sync.Mutex // Mutex to protect shared resources
+  // Slice to collect all processed transactions and errors
+  var allTxns []*model.Transaction
+  var allErrors []error
+  var mu sync.Mutex // Mutex to protect shared resources
 
-	// Create channels for jobs and results
-	jobs := make(chan *model.Transaction, maxQueueSize)
-	results := make(chan BatchJobResult, maxQueueSize)
+  // Create channels for jobs and results
+  jobs := make(chan *model.Transaction, maxQueueSize)
+  results := make(chan BatchJobResult, maxQueueSize)
 
-	// Initialize worker pool
-	var wg sync.WaitGroup
-	for w := 1; w <= maxWorkers; w++ {
-		wg.Add(1)
-		go tw(ctx, jobs, results, &wg, amount)
-	}
+  // Initialize worker pool
+  var wg sync.WaitGroup
+  for w := 1; w <= maxWorkers; w++ {
+    wg.Add(1)
+    go tw(ctx, jobs, results, &wg, amount)
+  }
 
-	// Ensure the results channel is closed once all workers are done
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+  // Ensure the results channel is closed once all workers are done
+  go func() {
+    wg.Wait()
+    close(results)
+  }()
 
-	if !streamMode {
-		// Start a goroutine to process results
-		done := make(chan struct{})
-		go processResults(results, &mu, &allTxns, &allErrors, done)
+  if !streamMode {
+    // Start a goroutine to process results
+    done := make(chan struct{})
+    go processResults(results, &mu, &allTxns, &allErrors, done)
 
-		// Fetch and process transactions in batches concurrently
-		errChan := make(chan error, 1)
-		go fetchTransactions(ctx, parentTransactionID, batchSize, gt, jobs, errChan)
+    // Fetch and process transactions in batches concurrently
+    errChan := make(chan error, 1)
+    go fetchTransactions(ctx, parentTransactionID, batchSize, gt, jobs, errChan)
 
-		// Wait for all processing to complete
-		select {
-		case err := <-errChan:
-			span.RecordError(err)
-			return allTxns, err
-		case <-done:
-		}
+    // Wait for all processing to complete
+    select {
+    case err := <-errChan:
+      span.RecordError(err)
+      return allTxns, err
+    case <-done:
+    }
 
-		if len(allErrors) > 0 {
-			// Log errors and return a combined error
-			for _, err := range allErrors {
-				log.Printf("Error during processing: %v", err)
-				span.RecordError(err)
-			}
-			return allTxns, fmt.Errorf("error occurred during processing: %v", allErrors)
-		}
+    if len(allErrors) > 0 {
+      // Log errors and return a combined error
+      for _, err := range allErrors {
+        log.Printf("Error during processing: %v", err)
+        span.RecordError(err)
+      }
+      return allTxns, fmt.Errorf("error occurred during processing: %v", allErrors)
+    }
 
-		span.AddEvent("Processed all transactions in batches")
-		return allTxns, nil
-	} else {
-		var wg sync.WaitGroup
-		// Stream mode: just fetch transactions and send to jobs channel
-		errChan := make(chan error, 1)
+    span.AddEvent("Processed all transactions in batches")
+    return allTxns, nil
+  } else {
+    var wg sync.WaitGroup
+    // Stream mode: just fetch transactions and send to jobs channel
+    errChan := make(chan error, 1)
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			fetchTransactions(ctx, parentTransactionID, batchSize, gt, jobs, errChan)
-		}()
+    wg.Add(1)
+    go func() {
+      defer wg.Done()
+      fetchTransactions(ctx, parentTransactionID, batchSize, gt, jobs, errChan)
+    }()
 
-		wg.Wait()
-		span.AddEvent("Processed all transactions in streaming mode")
-		return nil, nil
-	}
+    wg.Wait()
+    span.AddEvent("Processed all transactions in streaming mode")
+    return nil, nil
+  }
 }
 
 // processResults processes the results from the results channel, collecting transactions and errors.
@@ -600,21 +600,21 @@ func (l *Blnk) ProcessTransactionInBatches(ctx context.Context, parentTransactio
 // - allErrors *[]error: A slice to collect all errors encountered during processing.
 // - done chan struct{}: A channel to signal when processing is complete.
 func processResults(results chan BatchJobResult, mu *sync.Mutex, allTxns *[]*model.Transaction, allErrors *[]error, done chan struct{}) {
-	for result := range results {
-		mu.Lock()
-		if result.Error != nil {
-			// Log any error encountered during transaction processing
-			log.Printf("Error processing transaction: %v", result.Error)
-			*allErrors = append(*allErrors, result.Error)
-		} else if result.Txn != nil {
-			*allTxns = append(*allTxns, result.Txn)
-		} else {
-			// Handle the case where the result contains no transaction and no error
-			log.Printf("Received a result with no transaction and no error")
-		}
-		mu.Unlock()
-	}
-	close(done) // Signal completion of processing.
+  for result := range results {
+    mu.Lock()
+    if result.Error != nil {
+      // Log any error encountered during transaction processing
+      log.Printf("Error processing transaction: %v", result.Error)
+      *allErrors = append(*allErrors, result.Error)
+    } else if result.Txn != nil {
+      *allTxns = append(*allTxns, result.Txn)
+    } else {
+      // Handle the case where the result contains no transaction and no error
+      log.Printf("Received a result with no transaction and no error")
+    }
+    mu.Unlock()
+  }
+  close(done) // Signal completion of processing.
 }
 
 // fetchTransactions fetches transactions in batches and sends them to the jobs channel.
@@ -628,56 +628,56 @@ func processResults(results chan BatchJobResult, mu *sync.Mutex, allTxns *[]*mod
 // - jobs chan *model.Transaction: The channel to send fetched transactions to.
 // - errChan chan error: The channel to send errors to.
 func fetchTransactions(ctx context.Context, parentTransactionID string, batchSize int, gt getTxns, jobs chan *model.Transaction, errChan chan error) {
-	newCtx, span := tracer.Start(ctx, "FetchTransactions")
-	defer span.End()
-	defer close(jobs) // Ensure the jobs channel is closed in all cases to avoid deadlocks
+  newCtx, span := tracer.Start(ctx, "FetchTransactions")
+  defer span.End()
+  defer close(jobs) // Ensure the jobs channel is closed in all cases to avoid deadlocks
 
-	var offset int64 = 0
-	for {
-		select {
-		case <-ctx.Done():
-			// Handle context cancellation gracefully by sending the error and returning
-			err := ctx.Err()
-			if err != nil {
-				errChan <- err
-				span.RecordError(err)
-			}
-			return
-		default:
-			// Fetch the transactions in batches
-			txns, err := gt(newCtx, parentTransactionID, batchSize, offset)
-			if err != nil {
-				// Log and send error if fetching transactions fails
-				log.Printf("Error fetching transactions: %v", err)
-				errChan <- err
-				span.RecordError(err)
-				return
-			}
-			if len(txns) == 0 {
-				// Stop if no more transactions are found
-				span.AddEvent("No more transactions to fetch")
-				return
-			}
+  var offset int64 = 0
+  for {
+    select {
+    case <-ctx.Done():
+      // Handle context cancellation gracefully by sending the error and returning
+      err := ctx.Err()
+      if err != nil {
+        errChan <- err
+        span.RecordError(err)
+      }
+      return
+    default:
+      // Fetch the transactions in batches
+      txns, err := gt(newCtx, parentTransactionID, batchSize, offset)
+      if err != nil {
+        // Log and send error if fetching transactions fails
+        log.Printf("Error fetching transactions: %v", err)
+        errChan <- err
+        span.RecordError(err)
+        return
+      }
+      if len(txns) == 0 {
+        // Stop if no more transactions are found
+        span.AddEvent("No more transactions to fetch")
+        return
+      }
 
-			// Send fetched transactions to the jobs channel
-			for _, txn := range txns {
-				select {
-				case jobs <- txn: // Send the transaction to be processed
-				case <-ctx.Done():
-					// If context is canceled, handle gracefully
-					err := ctx.Err()
-					if err != nil {
-						errChan <- err
-						span.RecordError(err)
-					}
-					return
-				}
-			}
+      // Send fetched transactions to the jobs channel
+      for _, txn := range txns {
+        select {
+        case jobs <- txn: // Send the transaction to be processed
+        case <-ctx.Done():
+          // If context is canceled, handle gracefully
+          err := ctx.Err()
+          if err != nil {
+            errChan <- err
+            span.RecordError(err)
+          }
+          return
+        }
+      }
 
-			// Increment offset to fetch the next batch
-			offset += int64(len(txns))
-		}
-	}
+      // Increment offset to fetch the next batch
+      offset += int64(len(txns))
+    }
+  }
 }
 
 // RefundWorker processes refund transactions from the jobs channel and sends the results to the results channel.
@@ -690,20 +690,20 @@ func fetchTransactions(ctx context.Context, parentTransactionID string, batchSiz
 // - wg *sync.WaitGroup: A wait group to synchronize the completion of the worker.
 // - amount float64: The amount to be processed in the transaction.
 func (l *Blnk) RefundWorker(ctx context.Context, jobs <-chan *model.Transaction, results chan<- BatchJobResult, wg *sync.WaitGroup, amount *big.Int) {
-	ctx, span := tracer.Start(ctx, "RefundWorker")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "RefundWorker")
+  defer span.End()
 
-	defer wg.Done()
-	for originalTxn := range jobs {
-		queuedRefundTxn, err := l.RefundTransaction(ctx, originalTxn.TransactionID, originalTxn.SkipQueue)
-		if err != nil {
-			results <- BatchJobResult{Error: err}
-			span.RecordError(err)
-			continue
-		}
-		results <- BatchJobResult{Txn: queuedRefundTxn}
-		span.AddEvent("Refund processed", trace.WithAttributes(attribute.String("transaction.id", queuedRefundTxn.TransactionID)))
-	}
+  defer wg.Done()
+  for originalTxn := range jobs {
+    queuedRefundTxn, err := l.RefundTransaction(ctx, originalTxn.TransactionID, originalTxn.SkipQueue)
+    if err != nil {
+      results <- BatchJobResult{Error: err}
+      span.RecordError(err)
+      continue
+    }
+    results <- BatchJobResult{Txn: queuedRefundTxn}
+    span.AddEvent("Refund processed", trace.WithAttributes(attribute.String("transaction.id", queuedRefundTxn.TransactionID)))
+  }
 }
 
 // IsInflightTransaction checks whether a transaction is considered "inflight" based on its status and metadata.
@@ -717,10 +717,10 @@ func (l *Blnk) RefundWorker(ctx context.Context, jobs <-chan *model.Transaction,
 // Returns:
 // - bool: true if the transaction is considered inflight, false otherwise
 func IsInflightTransaction(transaction *model.Transaction) bool {
-	return transaction.Status == StatusInflight ||
-		(transaction.Status == StatusQueued &&
-			transaction.MetaData != nil &&
-			transaction.MetaData["inflight"] == true)
+  return transaction.Status == StatusInflight ||
+      (transaction.Status == StatusQueued &&
+          transaction.MetaData != nil &&
+          transaction.MetaData["inflight"] == true)
 }
 
 // CommitWorker processes commit transactions from the jobs channel and sends the results to the results channel.
@@ -733,27 +733,27 @@ func IsInflightTransaction(transaction *model.Transaction) bool {
 // - wg *sync.WaitGroup: A wait group to synchronize the completion of the worker.
 // - amount *big.Int: The amount to be processed in the transaction.
 func (l *Blnk) CommitWorker(ctx context.Context, jobs <-chan *model.Transaction, results chan<- BatchJobResult, wg *sync.WaitGroup, amount *big.Int) {
-	ctx, span := tracer.Start(ctx, "CommitWorker")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "CommitWorker")
+  defer span.End()
 
-	defer wg.Done()
-	for originalTxn := range jobs {
-		// Check inflight status using the helper function
-		if !IsInflightTransaction(originalTxn) {
-			err := fmt.Errorf("transaction is not in inflight status")
-			results <- BatchJobResult{Error: err}
-			span.RecordError(err)
-			continue
-		}
-		queuedCommitTxn, err := l.CommitInflightTransaction(ctx, originalTxn.TransactionID, amount)
-		if err != nil {
-			results <- BatchJobResult{Error: err}
-			span.RecordError(err)
-			continue
-		}
-		results <- BatchJobResult{Txn: queuedCommitTxn}
-		span.AddEvent("Commit processed", trace.WithAttributes(attribute.String("transaction.id", queuedCommitTxn.TransactionID)))
-	}
+  defer wg.Done()
+  for originalTxn := range jobs {
+    // Check inflight status using the helper function
+    if !IsInflightTransaction(originalTxn) {
+      err := fmt.Errorf("transaction is not in inflight status")
+      results <- BatchJobResult{Error: err}
+      span.RecordError(err)
+      continue
+    }
+    queuedCommitTxn, err := l.CommitInflightTransaction(ctx, originalTxn.TransactionID, amount)
+    if err != nil {
+      results <- BatchJobResult{Error: err}
+      span.RecordError(err)
+      continue
+    }
+    results <- BatchJobResult{Txn: queuedCommitTxn}
+    span.AddEvent("Commit processed", trace.WithAttributes(attribute.String("transaction.id", queuedCommitTxn.TransactionID)))
+  }
 }
 
 // VoidWorker processes void transactions from the jobs channel and sends the results to the results channel.
@@ -766,27 +766,27 @@ func (l *Blnk) CommitWorker(ctx context.Context, jobs <-chan *model.Transaction,
 // - wg *sync.WaitGroup: A wait group to synchronize the completion of the worker.
 // - amount *big.Int: The amount to be processed in the transaction.
 func (l *Blnk) VoidWorker(ctx context.Context, jobs <-chan *model.Transaction, results chan<- BatchJobResult, wg *sync.WaitGroup, amount *big.Int) {
-	ctx, span := tracer.Start(ctx, "VoidWorker")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "VoidWorker")
+  defer span.End()
 
-	defer wg.Done()
-	for originalTxn := range jobs {
-		// Check inflight status using the helper function
-		if !IsInflightTransaction(originalTxn) {
-			err := fmt.Errorf("transaction is not in inflight status")
-			results <- BatchJobResult{Error: err}
-			span.RecordError(err)
-			continue
-		}
-		queuedVoidTxn, err := l.VoidInflightTransaction(ctx, originalTxn.TransactionID)
-		if err != nil {
-			results <- BatchJobResult{Error: err}
-			span.RecordError(err)
-			continue
-		}
-		results <- BatchJobResult{Txn: queuedVoidTxn}
-		span.AddEvent("Void processed", trace.WithAttributes(attribute.String("transaction.id", queuedVoidTxn.TransactionID)))
-	}
+  defer wg.Done()
+  for originalTxn := range jobs {
+    // Check inflight status using the helper function
+    if !IsInflightTransaction(originalTxn) {
+      err := fmt.Errorf("transaction is not in inflight status")
+      results <- BatchJobResult{Error: err}
+      span.RecordError(err)
+      continue
+    }
+    queuedVoidTxn, err := l.VoidInflightTransaction(ctx, originalTxn.TransactionID)
+    if err != nil {
+      results <- BatchJobResult{Error: err}
+      span.RecordError(err)
+      continue
+    }
+    results <- BatchJobResult{Txn: queuedVoidTxn}
+    span.AddEvent("Void processed", trace.WithAttributes(attribute.String("transaction.id", queuedVoidTxn.TransactionID)))
+  }
 }
 
 // RecordTransaction records a transaction by validating, processing balances, and finalizing the transaction.
@@ -800,49 +800,49 @@ func (l *Blnk) VoidWorker(ctx context.Context, jobs <-chan *model.Transaction, r
 // - *model.Transaction: A pointer to the recorded Transaction model.
 // - error: An error if the transaction could not be recorded.
 func (l *Blnk) RecordTransaction(ctx context.Context, transaction *model.Transaction) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "RecordTransaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "RecordTransaction")
+  defer span.End()
 
-	return l.executeWithLock(ctx, transaction, func(ctx context.Context) (*model.Transaction, error) {
-		// Execute pre-transaction hooks
-		if err := l.Hooks.ExecutePreHooks(ctx, transaction.TransactionID, transaction); err != nil {
-			span.RecordError(err)
-			return nil, err
-		}
+  return l.executeWithLock(ctx, transaction, func(ctx context.Context) (*model.Transaction, error) {
+    // Execute pre-transaction hooks
+    if err := l.Hooks.ExecutePreHooks(ctx, transaction.TransactionID, transaction); err != nil {
+      span.RecordError(err)
+      return nil, err
+    }
 
-		// Validate and prepare the transaction, including retrieving source and destination balances
-		transaction, sourceBalance, destinationBalance, err := l.validateAndPrepareTransaction(ctx, transaction)
-		if err != nil {
-			span.RecordError(err)
-			return nil, err
-		}
+    // Validate and prepare the transaction, including retrieving source and destination balances
+    transaction, sourceBalance, destinationBalance, err := l.validateAndPrepareTransaction(ctx, transaction)
+    if err != nil {
+      span.RecordError(err)
+      return nil, err
+    }
 
-		// Process the balances by applying the transaction
-		if err := l.processBalances(ctx, transaction, sourceBalance, destinationBalance); err != nil {
-			span.RecordError(err)
-			return nil, err
-		}
+    // Process the balances by applying the transaction
+    if err := l.processBalances(ctx, transaction, sourceBalance, destinationBalance); err != nil {
+      span.RecordError(err)
+      return nil, err
+    }
 
-		// Finalize the transaction by persisting it and updating the balances
-		transaction, err = l.finalizeTransaction(ctx, transaction, sourceBalance, destinationBalance)
-		if err != nil {
-			span.RecordError(err)
-			return nil, err
-		}
+    // Finalize the transaction by persisting it and updating the balances
+    transaction, err = l.finalizeTransaction(ctx, transaction, sourceBalance, destinationBalance)
+    if err != nil {
+      span.RecordError(err)
+      return nil, err
+    }
 
-		// Execute post-transaction hooks
-		if err := l.Hooks.ExecutePostHooks(ctx, transaction.TransactionID, transaction); err != nil {
-			span.RecordError(err)
-			// Don't fail the transaction if post-hooks fail, just log the error
-			logrus.Errorf("post-transaction hooks failed: %v", err)
-		}
+    // Execute post-transaction hooks
+    if err := l.Hooks.ExecutePostHooks(ctx, transaction.TransactionID, transaction); err != nil {
+      span.RecordError(err)
+      // Don't fail the transaction if post-hooks fail, just log the error
+      logrus.Errorf("post-transaction hooks failed: %v", err)
+    }
 
-		// Perform post-transaction actions such as indexing and sending webhooks
-		l.postTransactionActions(ctx, transaction)
+    // Perform post-transaction actions such as indexing and sending webhooks
+    l.postTransactionActions(ctx, transaction)
 
-		span.AddEvent("Transaction processed", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
-		return transaction, nil
-	})
+    span.AddEvent("Transaction processed", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
+    return transaction, nil
+  })
 }
 
 // executeWithLock executes a function with a distributed lock to ensure exclusive access to the transaction.
@@ -857,19 +857,19 @@ func (l *Blnk) RecordTransaction(ctx context.Context, transaction *model.Transac
 // - *model.Transaction: A pointer to the Transaction model returned by the function.
 // - error: An error if the lock could not be acquired or if the function execution fails.
 func (l *Blnk) executeWithLock(ctx context.Context, transaction *model.Transaction, fn func(context.Context) (*model.Transaction, error)) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "ExecuteWithLock")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "ExecuteWithLock")
+  defer span.End()
 
-	// Acquire a distributed lock for the transaction
-	locker, err := l.acquireLock(ctx, transaction)
-	if err != nil {
-		span.RecordError(err)
-		return nil, fmt.Errorf("failed to acquire lock: %w", err)
-	}
+  // Acquire a distributed lock for the transaction
+  locker, err := l.acquireLock(ctx, transaction)
+  if err != nil {
+    span.RecordError(err)
+    return nil, fmt.Errorf("failed to acquire lock: %w", err)
+  }
 
-	defer l.releaseLock(ctx, locker)
-	// Execute the provided function with the lock
-	return fn(ctx)
+  defer l.releaseLock(ctx, locker)
+  // Execute the provided function with the lock
+  return fn(ctx)
 }
 
 // validateAndPrepareTransaction validates the transaction and prepares it by retrieving the source and destination balances.
@@ -885,33 +885,33 @@ func (l *Blnk) executeWithLock(ctx context.Context, transaction *model.Transacti
 // - *model.Balance: A pointer to the destination Balance model.
 // - error: An error if the transaction validation or balance retrieval fails.
 func (l *Blnk) validateAndPrepareTransaction(ctx context.Context, transaction *model.Transaction) (*model.Transaction, *model.Balance, *model.Balance, error) {
-	ctx, span := tracer.Start(ctx, "ValidateAndPrepareTransaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "ValidateAndPrepareTransaction")
+  defer span.End()
 
-	// Validate the transaction
-	if err := l.validateTxn(ctx, transaction); err != nil {
-		span.RecordError(err)
-		return nil, nil, nil, l.logAndRecordError(span, "transaction validation failed", err)
-	}
+  // Validate the transaction
+  if err := l.validateTxn(ctx, transaction); err != nil {
+    span.RecordError(err)
+    return nil, nil, nil, l.logAndRecordError(span, "transaction validation failed", err)
+  }
 
-	// Retrieve the source and destination balances
-	sourceBalance, destinationBalance, err := l.getSourceAndDestination(ctx, transaction)
-	if err != nil {
-		span.RecordError(err)
-		return nil, nil, nil, l.logAndRecordError(span, "failed to get source and destination balances", err)
-	}
+  // Retrieve the source and destination balances
+  sourceBalance, destinationBalance, err := l.getSourceAndDestination(ctx, transaction)
+  if err != nil {
+    span.RecordError(err)
+    return nil, nil, nil, l.logAndRecordError(span, "failed to get source and destination balances", err)
+  }
 
-	// Create a copy of the transaction and update it (immutable)
-	newTransaction := *transaction // Copy the original transaction
-	newTransaction.Source = sourceBalance.BalanceID
-	newTransaction.Destination = destinationBalance.BalanceID
+  // Create a copy of the transaction and update it (immutable)
+  newTransaction := *transaction // Copy the original transaction
+  newTransaction.Source = sourceBalance.BalanceID
+  newTransaction.Destination = destinationBalance.BalanceID
 
-	span.AddEvent("Transaction validated and prepared", trace.WithAttributes(
-		attribute.String("source.balance_id", sourceBalance.BalanceID),
-		attribute.String("destination.balance_id", destinationBalance.BalanceID)))
+  span.AddEvent("Transaction validated and prepared", trace.WithAttributes(
+    attribute.String("source.balance_id", sourceBalance.BalanceID),
+    attribute.String("destination.balance_id", destinationBalance.BalanceID)))
 
-	// Return the new transaction, source, and destination balances
-	return &newTransaction, sourceBalance, destinationBalance, nil
+  // Return the new transaction, source, and destination balances
+  return &newTransaction, sourceBalance, destinationBalance, nil
 }
 
 // processBalances processes the source and destination balances by applying the transaction and updating the balances.
@@ -926,23 +926,23 @@ func (l *Blnk) validateAndPrepareTransaction(ctx context.Context, transaction *m
 // Returns:
 // - error: An error if the transaction could not be applied to the balances or if the balances could not be updated.
 func (l *Blnk) processBalances(ctx context.Context, transaction *model.Transaction, sourceBalance, destinationBalance *model.Balance) error {
-	ctx, span := tracer.Start(ctx, "ProcessBalances")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "ProcessBalances")
+  defer span.End()
 
-	// Apply the transaction to the source and destination balances
-	if err := l.applyTransactionToBalances(ctx, []*model.Balance{sourceBalance, destinationBalance}, transaction); err != nil {
-		span.RecordError(err)
-		return l.logAndRecordError(span, "failed to apply transaction to balances", err)
-	}
+  // Apply the transaction to the source and destination balances
+  if err := l.applyTransactionToBalances(ctx, []*model.Balance{sourceBalance, destinationBalance}, transaction); err != nil {
+    span.RecordError(err)
+    return l.logAndRecordError(span, "failed to apply transaction to balances", err)
+  }
 
-	// Update the source and destination balances in the datasource
-	if err := l.updateBalances(ctx, sourceBalance, destinationBalance); err != nil {
-		span.RecordError(err)
-		return l.logAndRecordError(span, "failed to update balances", err)
-	}
+  // Update the source and destination balances in the datasource
+  if err := l.updateBalances(ctx, sourceBalance, destinationBalance); err != nil {
+    span.RecordError(err)
+    return l.logAndRecordError(span, "failed to update balances", err)
+  }
 
-	span.AddEvent("Balances processed")
-	return nil
+  span.AddEvent("Balances processed")
+  return nil
 }
 
 // finalizeTransaction finalizes the transaction by updating its details and persisting it to the database.
@@ -958,22 +958,22 @@ func (l *Blnk) processBalances(ctx context.Context, transaction *model.Transacti
 // - *model.Transaction: A pointer to the finalized Transaction model.
 // - error: An error if the transaction could not be persisted.
 func (l *Blnk) finalizeTransaction(ctx context.Context, transaction *model.Transaction, sourceBalance, destinationBalance *model.Balance) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "FinalizeTransaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "FinalizeTransaction")
+  defer span.End()
 
-	// Update the transaction details with the source and destination balances
-	transaction = l.updateTransactionDetails(ctx, transaction, sourceBalance, destinationBalance)
+  // Update the transaction details with the source and destination balances
+  transaction = l.updateTransactionDetails(ctx, transaction, sourceBalance, destinationBalance)
 
-	// Persist the transaction to the database
-	transaction, err := l.persistTransaction(ctx, transaction)
-	if err != nil {
-		span.RecordError(err)
-		return nil, l.logAndRecordError(span, "failed to persist transaction", err)
-	}
+  // Persist the transaction to the database
+  transaction, err := l.persistTransaction(ctx, transaction)
+  if err != nil {
+    span.RecordError(err)
+    return nil, l.logAndRecordError(span, "failed to persist transaction", err)
+  }
 
-	span.AddEvent("Transaction processed", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
+  span.AddEvent("Transaction processed", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
 
-	return transaction, nil
+  return transaction, nil
 }
 
 // releaseLock releases the distributed lock acquired for a transaction.
@@ -983,15 +983,15 @@ func (l *Blnk) finalizeTransaction(ctx context.Context, transaction *model.Trans
 // - ctx context.Context: The context for the operation.
 // - locker *redlock.Locker: The locker object representing the acquired lock.
 func (l *Blnk) releaseLock(ctx context.Context, locker *redlock.Locker) {
-	ctx, span := tracer.Start(ctx, "ReleaseLock")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "ReleaseLock")
+  defer span.End()
 
-	// Attempt to release the lock
-	if err := locker.Unlock(ctx); err != nil {
-		span.RecordError(err)
-		logrus.Error("failed to release lock: ", err)
-	}
-	span.AddEvent("Lock released")
+  // Attempt to release the lock
+  if err := locker.Unlock(ctx); err != nil {
+    span.RecordError(err)
+    logrus.Error("failed to release lock: ", err)
+  }
+  span.AddEvent("Lock released")
 }
 
 // logAndRecordError logs an error message and records the error in the tracing span.
@@ -1005,9 +1005,9 @@ func (l *Blnk) releaseLock(ctx context.Context, locker *redlock.Locker) {
 // Returns:
 // - error: A formatted error message combining the provided message and the original error.
 func (l *Blnk) logAndRecordError(span trace.Span, msg string, err error) error {
-	span.RecordError(err)
-	logrus.Error(msg, err)
-	return fmt.Errorf("%s: %w", msg, err)
+  span.RecordError(err)
+  logrus.Error(msg, err)
+  return fmt.Errorf("%s: %w", msg, err)
 }
 
 // RejectTransaction rejects a transaction by updating its status and recording the rejection reason.
@@ -1022,38 +1022,38 @@ func (l *Blnk) logAndRecordError(span trace.Span, msg string, err error) error {
 // - *model.Transaction: A pointer to the rejected Transaction model.
 // - error: An error if the transaction could not be recorded.
 func (l *Blnk) RejectTransaction(ctx context.Context, transaction *model.Transaction, reason string) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "RejectTransaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "RejectTransaction")
+  defer span.End()
 
-	// Update the transaction status to rejected
-	transaction.Status = StatusRejected
+  // Update the transaction status to rejected
+  transaction.Status = StatusRejected
 
-	// Initialize MetaData if it's nil and add the rejection reason
-	if transaction.MetaData == nil {
-		transaction.MetaData = make(map[string]interface{})
-	}
-	transaction.MetaData["blnk_rejection_reason"] = reason
+  // Initialize MetaData if it's nil and add the rejection reason
+  if transaction.MetaData == nil {
+    transaction.MetaData = make(map[string]interface{})
+  }
+  transaction.MetaData["blnk_rejection_reason"] = reason
 
-	// Persist the transaction with the updated status and metadata
-	transaction, err := l.datasource.RecordTransaction(ctx, transaction)
-	if err != nil {
-		span.RecordError(err)
-		logrus.Errorf("ERROR saving transaction to db. %s", err)
-		return nil, err
-	}
+  // Persist the transaction with the updated status and metadata
+  transaction, err := l.datasource.RecordTransaction(ctx, transaction)
+  if err != nil {
+    span.RecordError(err)
+    logrus.Errorf("ERROR saving transaction to db. %s", err)
+    return nil, err
+  }
 
-	span.AddEvent("Transaction rejected", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
+  span.AddEvent("Transaction rejected", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
 
-	if transaction.Atomic {
-		logrus.Info(transaction.ParentTransaction, "parent transaction", transaction.Atomic, "atomic", transaction.Inflight, "inflight")
-		parentTransactionID, ok := transaction.MetaData["QUEUED_PARENT_TRANSACTION"].(string)
-		if !ok {
-			return nil, fmt.Errorf("parent transaction ID not found in meta data")
-		}
-		l.handleAsyncBulkTransactionFailure(ctx, errors.New("transaction rejected"), parentTransactionID, transaction.Atomic, transaction.Inflight)
-	}
-	l.postTransactionActions(ctx, transaction)
-	return transaction, nil
+  if transaction.Atomic {
+    logrus.Info(transaction.ParentTransaction, "parent transaction", transaction.Atomic, "atomic", transaction.Inflight, "inflight")
+    parentTransactionID, ok := transaction.MetaData["QUEUED_PARENT_TRANSACTION"].(string)
+    if !ok {
+      return nil, fmt.Errorf("parent transaction ID not found in meta data")
+    }
+    l.handleAsyncBulkTransactionFailure(ctx, errors.New("transaction rejected"), parentTransactionID, transaction.Atomic, transaction.Inflight)
+  }
+  l.postTransactionActions(ctx, transaction)
+  return transaction, nil
 }
 
 // CommitInflightTransaction commits an inflight transaction by validating and updating its amount, and finalizing the commitment.
@@ -1068,87 +1068,87 @@ func (l *Blnk) RejectTransaction(ctx context.Context, transaction *model.Transac
 // - *model.Transaction: A pointer to the committed Transaction model.
 // - error: An error if the transaction could not be committed.
 func (l *Blnk) CommitInflightTransaction(ctx context.Context, transactionID string, amount *big.Int) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "CommitInflightTransaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "CommitInflightTransaction")
+  defer span.End()
 
-	// Create a lock key using the transaction ID (which is the parent ID for the commit)
-	lockKey := fmt.Sprintf("inflight-commit:%s", transactionID)
-	locker := redlock.NewLocker(l.redis, lockKey, model.GenerateUUIDWithSuffix("loc"))
+  // Create a lock key using the transaction ID (which is the parent ID for the commit)
+  lockKey := fmt.Sprintf("inflight-commit:%s", transactionID)
+  locker := redlock.NewLocker(l.redis, lockKey, model.GenerateUUIDWithSuffix("loc"))
 
-	// Get lock duration from config
-	config, err := config.Fetch()
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Get lock duration from config
+  config, err := config.Fetch()
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	// Acquire the lock
-	err = locker.Lock(ctx, config.Transaction.LockDuration)
-	if err != nil {
-		span.RecordError(err)
-		return nil, fmt.Errorf("failed to acquire lock for inflight commit: %w", err)
-	}
-	defer l.releaseLock(ctx, locker)
+  // Acquire the lock
+  err = locker.Lock(ctx, config.Transaction.LockDuration)
+  if err != nil {
+    span.RecordError(err)
+    return nil, fmt.Errorf("failed to acquire lock for inflight commit: %w", err)
+  }
+  defer l.releaseLock(ctx, locker)
 
-	// Fetch and validate the inflight transaction
-	transaction, err := l.fetchAndValidateInflightTransaction(ctx, transactionID)
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Fetch and validate the inflight transaction
+  transaction, err := l.fetchAndValidateInflightTransaction(ctx, transactionID)
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	// Validate and update the transaction amount
-	if err := l.validateAndUpdateAmount(ctx, transaction, amount); err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Validate and update the transaction amount
+  if err := l.validateAndUpdateAmount(ctx, transaction, amount); err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	span.AddEvent("Inflight transaction committed", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
+  span.AddEvent("Inflight transaction committed", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
 
-	// Finalize the commitment of the transaction
-	return l.finalizeCommitment(ctx, transaction, false)
+  // Finalize the commitment of the transaction
+  return l.finalizeCommitment(ctx, transaction, false)
 }
 
 func (l *Blnk) CommitInflightTransactionWithQueue(ctx context.Context, transactionID string, amount *big.Int) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "CommitInflightTransactionWithQueue")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "CommitInflightTransactionWithQueue")
+  defer span.End()
 
-	// Create a lock key using the transaction ID (which is the parent ID for the commit)
-	lockKey := fmt.Sprintf("inflight-commit:%s", transactionID)
-	locker := redlock.NewLocker(l.redis, lockKey, model.GenerateUUIDWithSuffix("loc"))
+  // Create a lock key using the transaction ID (which is the parent ID for the commit)
+  lockKey := fmt.Sprintf("inflight-commit:%s", transactionID)
+  locker := redlock.NewLocker(l.redis, lockKey, model.GenerateUUIDWithSuffix("loc"))
 
-	// Get lock duration from config
-	config, err := config.Fetch()
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Get lock duration from config
+  config, err := config.Fetch()
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	// Acquire the lock
-	err = locker.Lock(ctx, config.Transaction.LockDuration)
-	if err != nil {
-		span.RecordError(err)
-		return nil, fmt.Errorf("failed to acquire lock for inflight commit: %w", err)
-	}
-	defer l.releaseLock(ctx, locker)
+  // Acquire the lock
+  err = locker.Lock(ctx, config.Transaction.LockDuration)
+  if err != nil {
+    span.RecordError(err)
+    return nil, fmt.Errorf("failed to acquire lock for inflight commit: %w", err)
+  }
+  defer l.releaseLock(ctx, locker)
 
-	// Fetch and validate the inflight transaction
-	transaction, err := l.fetchAndValidateInflightTransaction(ctx, transactionID)
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Fetch and validate the inflight transaction
+  transaction, err := l.fetchAndValidateInflightTransaction(ctx, transactionID)
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	// Validate and update the transaction amount
-	if err := l.validateAndUpdateAmount(ctx, transaction, amount); err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Validate and update the transaction amount
+  if err := l.validateAndUpdateAmount(ctx, transaction, amount); err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	span.AddEvent("Inflight transaction committed", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
+  span.AddEvent("Inflight transaction committed", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
 
-	// Finalize the commitment of the transaction
-	return l.finalizeCommitment(ctx, transaction, true)
+  // Finalize the commitment of the transaction
+  return l.finalizeCommitment(ctx, transaction, true)
 }
 
 // validateAndUpdateAmount validates the amount to be committed for a transaction and updates the transaction's amount.
@@ -1162,35 +1162,37 @@ func (l *Blnk) CommitInflightTransactionWithQueue(ctx context.Context, transacti
 // Returns:
 // - error: An error if the amount validation or update fails.
 func (l *Blnk) validateAndUpdateAmount(ctx context.Context, transaction *model.Transaction, amount *big.Int) error {
-	ctx, span := tracer.Start(ctx, "ValidateAndUpdateAmount")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "ValidateAndUpdateAmount")
+  defer span.End()
 
-	// Get the remaining amount that can be committed
-	amountLeft, err := l.calculateRemainingAmount(ctx, transaction)
-	if err != nil {
-		span.RecordError(err)
-		return err
-	}
+  // Get the remaining amount that can be committed
+  amountLeft, err := l.calculateRemainingAmount(ctx, transaction)
+  if err != nil {
+    span.RecordError(err)
+    return err
+  }
 
-	// Check if transaction is already fully committed
-	if err := l.checkTransactionCommitStatus(amountLeft); err != nil {
-		span.RecordError(err)
-		return err
-	}
+  // Check if transaction is already fully committed
+  if err := l.checkTransactionCommitStatus(amountLeft); err != nil {
+    span.RecordError(err)
+    return err
+  }
 
-	// Validate the requested amount against limits
-	if err := l.validateRequestedAmount(transaction, amount, amountLeft); err != nil {
-		span.RecordError(err)
-		return err
-	}
+  // Validate the requested amount against limits
+  if err := l.validateRequestedAmount(transaction, amount, amountLeft); err != nil {
+    span.RecordError(err)
+    return err
+  }
 
-	// Update the transaction with the appropriate amount
-	l.updateTransactionAmount(transaction, amount, amountLeft)
+  // TODO: adicionar logica aqui
 
-	// Log the successful validation and update
-	amountLeftValue := l.convertPreciseToFloat(amountLeft, transaction.Precision)
-	span.AddEvent("Amount validated and updated", trace.WithAttributes(attribute.Float64("amount.left", amountLeftValue)))
-	return nil
+  // Update the transaction with the appropriate amount
+  l.updateTransactionAmount(transaction, amount, amountLeft)
+
+  // Log the successful validation and update
+  amountLeftValue := l.convertPreciseToFloat(amountLeft, transaction.Precision)
+  span.AddEvent("Amount validated and updated", trace.WithAttributes(attribute.Float64("amount.left", amountLeftValue)))
+  return nil
 }
 
 // checkTransactionCommitStatus checks if a transaction can be committed based on its remaining amount.
@@ -1201,10 +1203,10 @@ func (l *Blnk) validateAndUpdateAmount(ctx context.Context, transaction *model.T
 // Returns:
 // - error: An error if the transaction is already fully committed.
 func (l *Blnk) checkTransactionCommitStatus(amountLeft *big.Int) error {
-	if amountLeft.Cmp(big.NewInt(0)) == 0 {
-		return errors.New("cannot commit. Transaction already committed")
-	}
-	return nil
+  if amountLeft.Cmp(big.NewInt(0)) == 0 {
+    return errors.New("cannot commit. Transaction already committed")
+  }
+  return nil
 }
 
 // validateRequestedAmount validates that the requested amount is within allowed limits.
@@ -1217,27 +1219,27 @@ func (l *Blnk) checkTransactionCommitStatus(amountLeft *big.Int) error {
 // Returns:
 // - error: An error if the requested amount exceeds allowed limits.
 func (l *Blnk) validateRequestedAmount(transaction *model.Transaction, amount *big.Int, amountLeft *big.Int) error {
-	// Skip validation for full commit (amount = 0)
-	if amount.Cmp(big.NewInt(0)) == 0 {
-		return nil
-	}
+  // Skip validation for full commit (amount = 0)
+  if amount.Cmp(big.NewInt(0)) == 0 {
+    return nil
+  }
 
-	requestedAmount := amount
+  requestedAmount := amount
 
-	// Check if requested amount exceeds original transaction amount
-	if requestedAmount.Cmp(transaction.PreciseAmount) > 0 {
-		return fmt.Errorf("cannot commit more than the original transaction amount. Original: %s%.2f, Requested: %s%.2f",
-			transaction.Currency, transaction.Amount, transaction.Currency, amount)
-	}
+  // Check if requested amount exceeds original transaction amount
+  if requestedAmount.Cmp(transaction.PreciseAmount) > 0 {
+    return fmt.Errorf("cannot commit more than the original transaction amount. Original: %s%.2f, Requested: %s%.2f",
+      transaction.Currency, transaction.Amount, transaction.Currency, amount)
+  }
 
-	// Check if requested amount exceeds remaining amount
-	if requestedAmount.Cmp(amountLeft) > 0 {
-		amountLeftValue := l.convertPreciseToFloat(amountLeft, transaction.Precision)
-		return fmt.Errorf("cannot commit more than the remaining amount. Available: %s%.2f, Requested: %s%.2f",
-			transaction.Currency, amountLeftValue, transaction.Currency, amount)
-	}
+  // Check if requested amount exceeds remaining amount
+  if requestedAmount.Cmp(amountLeft) > 0 {
+    amountLeftValue := l.convertPreciseToFloat(amountLeft, transaction.Precision)
+    return fmt.Errorf("cannot commit more than the remaining amount. Available: %s%.2f, Requested: %s%.2f",
+      transaction.Currency, amountLeftValue, transaction.Currency, amount)
+  }
 
-	return nil
+  return nil
 }
 
 // updateTransactionAmount updates the transaction with the specified amount or the full remaining amount.
@@ -1247,14 +1249,14 @@ func (l *Blnk) validateRequestedAmount(transaction *model.Transaction, amount *b
 // - amount float64: The amount to commit (0 means commit the full remaining amount).
 // - amountLeft *big.Int: The remaining amount that can be committed.
 func (l *Blnk) updateTransactionAmount(transaction *model.Transaction, amount *big.Int, amountLeft *big.Int) {
-	if amount.Cmp(big.NewInt(0)) != 0 {
-		// Update with specific amount
-		transaction.PreciseAmount = amount
-	} else {
-		// Update with full remaining amount
-		transaction.Amount = l.convertPreciseToFloat(amountLeft, transaction.Precision)
-		transaction.PreciseAmount = amountLeft
-	}
+  if amount.Cmp(big.NewInt(0)) != 0 {
+    // Update with specific amount
+    transaction.PreciseAmount = amount
+  } else {
+    // Update with full remaining amount
+    transaction.Amount = l.convertPreciseToFloat(amountLeft, transaction.Precision)
+    transaction.PreciseAmount = amountLeft
+  }
 }
 
 // convertPreciseToFloat converts a precise amount (big.Int) to a floating-point representation.
@@ -1266,10 +1268,10 @@ func (l *Blnk) updateTransactionAmount(transaction *model.Transaction, amount *b
 // Returns:
 // - float64: The floating-point representation of the precise amount.
 func (l *Blnk) convertPreciseToFloat(preciseAmount *big.Int, precision float64) float64 {
-	precisionBigInt := new(big.Float).SetFloat64(precision)
-	amountFloat := new(big.Float).SetInt(preciseAmount)
-	result, _ := new(big.Float).Quo(amountFloat, precisionBigInt).Float64()
-	return result
+  precisionBigInt := new(big.Float).SetFloat64(precision)
+  amountFloat := new(big.Float).SetInt(preciseAmount)
+  result, _ := new(big.Float).Quo(amountFloat, precisionBigInt).Float64()
+  return result
 }
 
 // finalizeCommitment finalizes the commitment of a transaction by updating its status and generating new identifiers.
@@ -1283,38 +1285,38 @@ func (l *Blnk) convertPreciseToFloat(preciseAmount *big.Int, precision float64) 
 // - *model.Transaction: A pointer to the finalized Transaction model.
 // - error: An error if the transaction could not be queued.
 func (l *Blnk) finalizeCommitment(ctx context.Context, transaction *model.Transaction, withQueue bool) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "FinalizeCommitment")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "FinalizeCommitment")
+  defer span.End()
 
-	// Update the transaction status to committed and generate new identifiers
-	transaction.Status = StatusCommit
-	transaction.ParentTransaction = transaction.TransactionID
-	transaction.CreatedAt = time.Now()
-	transaction.TransactionID = model.GenerateUUIDWithSuffix("txn")
-	transaction.Reference = model.GenerateUUIDWithSuffix("ref")
-	transaction.Hash = transaction.HashTxn()
+  // Update the transaction status to committed and generate new identifiers
+  transaction.Status = StatusCommit
+  transaction.ParentTransaction = transaction.TransactionID
+  transaction.CreatedAt = time.Now()
+  transaction.TransactionID = model.GenerateUUIDWithSuffix("txn")
+  transaction.Reference = model.GenerateUUIDWithSuffix("ref")
+  transaction.Hash = transaction.HashTxn()
 
-	if withQueue {
-		err := enqueueTransactions(ctx, l.queue, transaction, nil)
-		if err != nil {
-			span.RecordError(err)
-			return nil, l.logAndRecordError(span, "failed to enqueue transaction", err)
-		}
-	} else {
-		// Queue the transaction for further processing
-		transaction, err := l.RecordTransaction(ctx, transaction)
-		if err != nil {
-			span.RecordError(err)
-			return nil, l.logAndRecordError(span, "saving transaction to db error", err)
-		}
-		return transaction, nil
-	}
+  if withQueue {
+    err := enqueueTransactions(ctx, l.queue, transaction, nil)
+    if err != nil {
+      span.RecordError(err)
+      return nil, l.logAndRecordError(span, "failed to enqueue transaction", err)
+    }
+  } else {
+    // Queue the transaction for further processing
+    transaction, err := l.RecordTransaction(ctx, transaction)
+    if err != nil {
+      span.RecordError(err)
+      return nil, l.logAndRecordError(span, "saving transaction to db error", err)
+    }
+    return transaction, nil
+  }
 
-	// Update the transaction status to applied for client response. commit is an internal status.
-	transaction.Status = StatusApplied
+  // Update the transaction status to applied for client response. commit is an internal status.
+  transaction.Status = StatusApplied
 
-	span.AddEvent("Commitment finalized", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
-	return transaction, nil
+  span.AddEvent("Commitment finalized", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
+  return transaction, nil
 }
 
 // VoidInflightTransaction voids an inflight transaction by validating it, calculating the remaining amount, and finalizing the void.
@@ -1328,51 +1330,51 @@ func (l *Blnk) finalizeCommitment(ctx context.Context, transaction *model.Transa
 // - *model.Transaction: A pointer to the voided Transaction model.
 // - error: An error if the transaction could not be voided.
 func (l *Blnk) VoidInflightTransaction(ctx context.Context, transactionID string) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "VoidInflightTransaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "VoidInflightTransaction")
+  defer span.End()
 
-	// Create a lock key using the transaction ID (which is the parent ID for the void)
-	lockKey := fmt.Sprintf("inflight-commit:%s", transactionID)
-	locker := redlock.NewLocker(l.redis, lockKey, model.GenerateUUIDWithSuffix("loc"))
+  // Create a lock key using the transaction ID (which is the parent ID for the void)
+  lockKey := fmt.Sprintf("inflight-commit:%s", transactionID)
+  locker := redlock.NewLocker(l.redis, lockKey, model.GenerateUUIDWithSuffix("loc"))
 
-	// Get lock duration from config
-	config, err := config.Fetch()
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Get lock duration from config
+  config, err := config.Fetch()
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	// Acquire the lock
-	err = locker.Lock(ctx, config.Transaction.LockDuration)
-	if err != nil {
-		span.RecordError(err)
-		return nil, fmt.Errorf("failed to acquire lock for inflight void: %w", err)
-	}
-	defer l.releaseLock(ctx, locker)
+  // Acquire the lock
+  err = locker.Lock(ctx, config.Transaction.LockDuration)
+  if err != nil {
+    span.RecordError(err)
+    return nil, fmt.Errorf("failed to acquire lock for inflight void: %w", err)
+  }
+  defer l.releaseLock(ctx, locker)
 
-	// Fetch and validate the inflight transaction
-	transaction, err := l.fetchAndValidateInflightTransaction(ctx, transactionID)
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Fetch and validate the inflight transaction
+  transaction, err := l.fetchAndValidateInflightTransaction(ctx, transactionID)
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	// Calculate the remaining amount for the transaction
-	amountLeft, err := l.calculateRemainingAmount(ctx, transaction)
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Calculate the remaining amount for the transaction
+  amountLeft, err := l.calculateRemainingAmount(ctx, transaction)
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	if amountLeft.Cmp(big.NewInt(0)) == 0 {
-		err := errors.New("cannot void. Transaction already committed")
-		span.RecordError(err)
-		return transaction, err
-	}
-	span.AddEvent("Inflight transaction voided", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
+  if amountLeft.Cmp(big.NewInt(0)) == 0 {
+    err := errors.New("cannot void. Transaction already committed")
+    span.RecordError(err)
+    return transaction, err
+  }
+  span.AddEvent("Inflight transaction voided", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
 
-	// Finalize the void transaction
-	return l.finalizeVoidTransaction(ctx, transaction, amountLeft)
+  // Finalize the void transaction
+  return l.finalizeVoidTransaction(ctx, transaction, amountLeft)
 }
 
 // fetchAndValidateInflightTransaction fetches and validates an inflight transaction by its ID.
@@ -1386,56 +1388,56 @@ func (l *Blnk) VoidInflightTransaction(ctx context.Context, transactionID string
 // - *model.Transaction: A pointer to the validated Transaction model.
 // - error: An error if the transaction could not be fetched or validated.
 func (l *Blnk) fetchAndValidateInflightTransaction(ctx context.Context, transactionID string) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "FetchAndValidateInflightTransaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "FetchAndValidateInflightTransaction")
+  defer span.End()
 
-	var transaction *model.Transaction
+  var transaction *model.Transaction
 
-	// Attempt to retrieve the transaction from the database
-	dbTransaction, err := l.datasource.GetTransaction(ctx, transactionID)
-	if err == sql.ErrNoRows {
-		// If not found in the database, attempt to retrieve from the queue
-		queuedTxn, err := l.queue.GetTransactionFromQueue(transactionID)
-		log.Println("found inflight transaction in queue using it for commit/void", transactionID, queuedTxn.TransactionID)
-		if err != nil {
-			span.RecordError(err)
-			return &model.Transaction{}, err
-		}
-		if queuedTxn == nil {
-			err := fmt.Errorf("transaction not found")
-			span.RecordError(err)
-			return nil, err
-		}
-		transaction = queuedTxn
-	} else if err == nil {
-		transaction = dbTransaction
-	} else {
-		span.RecordError(err)
-		return &model.Transaction{}, err
-	}
+  // Attempt to retrieve the transaction from the database
+  dbTransaction, err := l.datasource.GetTransaction(ctx, transactionID)
+  if err == sql.ErrNoRows {
+    // If not found in the database, attempt to retrieve from the queue
+    queuedTxn, err := l.queue.GetTransactionFromQueue(transactionID)
+    log.Println("found inflight transaction in queue using it for commit/void", transactionID, queuedTxn.TransactionID)
+    if err != nil {
+      span.RecordError(err)
+      return &model.Transaction{}, err
+    }
+    if queuedTxn == nil {
+      err := fmt.Errorf("transaction not found")
+      span.RecordError(err)
+      return nil, err
+    }
+    transaction = queuedTxn
+  } else if err == nil {
+    transaction = dbTransaction
+  } else {
+    span.RecordError(err)
+    return &model.Transaction{}, err
+  }
 
-	// Validate the transaction status using the helper function
-	if !IsInflightTransaction(transaction) {
-		err := fmt.Errorf("transaction is not in inflight status")
-		span.RecordError(err)
-		return nil, err
-	}
+  // Validate the transaction status using the helper function
+  if !IsInflightTransaction(transaction) {
+    err := fmt.Errorf("transaction is not in inflight status")
+    span.RecordError(err)
+    return nil, err
+  }
 
-	// Check if the parent transaction has been voided
-	parentVoided, err := l.datasource.IsParentTransactionVoid(ctx, transactionID)
-	if err != nil {
-		span.RecordError(err)
-		return nil, l.logAndRecordError(span, "error checking parent transaction status", err)
-	}
+  // Check if the parent transaction has been voided
+  parentVoided, err := l.datasource.IsParentTransactionVoid(ctx, transactionID)
+  if err != nil {
+    span.RecordError(err)
+    return nil, l.logAndRecordError(span, "error checking parent transaction status", err)
+  }
 
-	if parentVoided {
-		err := fmt.Errorf("transaction has already been voided")
-		span.RecordError(err)
-		return nil, err
-	}
+  if parentVoided {
+    err := fmt.Errorf("transaction has already been voided")
+    span.RecordError(err)
+    return nil, err
+  }
 
-	span.AddEvent("Inflight transaction validated", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
-	return transaction, nil
+  span.AddEvent("Inflight transaction validated", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
+  return transaction, nil
 }
 
 // calculateRemainingAmount calculates the remaining amount for an inflight transaction by subtracting the committed amount from the precise amount.
@@ -1449,22 +1451,22 @@ func (l *Blnk) fetchAndValidateInflightTransaction(ctx context.Context, transact
 // - int64: The remaining amount for the transaction.
 // - error: An error if the committed amount could not be fetched.
 func (l *Blnk) calculateRemainingAmount(ctx context.Context, transaction *model.Transaction) (*big.Int, error) {
-	ctx, span := tracer.Start(ctx, "CalculateRemainingAmount")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "CalculateRemainingAmount")
+  defer span.End()
 
-	// Fetch the total committed amount for the transaction
-	committedAmount, err := l.datasource.GetTotalCommittedTransactions(ctx, transaction.TransactionID)
-	if err != nil {
-		span.RecordError(err)
-		return big.NewInt(0), l.logAndRecordError(span, "error fetching committed amount", err)
-	}
+  // Fetch the total committed amount for the transaction
+  committedAmount, err := l.datasource.GetTotalCommittedTransactions(ctx, transaction.TransactionID)
+  if err != nil {
+    span.RecordError(err)
+    return big.NewInt(0), l.logAndRecordError(span, "error fetching committed amount", err)
+  }
 
-	// Calculate the remaining amount
-	committedBigInt := committedAmount
-	remainingAmount := new(big.Int).Sub(transaction.PreciseAmount, committedBigInt)
+  // Calculate the remaining amount
+  committedBigInt := committedAmount
+  remainingAmount := new(big.Int).Sub(transaction.PreciseAmount, committedBigInt)
 
-	span.AddEvent("Remaining amount calculated", trace.WithAttributes(attribute.Int64("amount.remaining", remainingAmount.Int64())))
-	return remainingAmount, nil
+  span.AddEvent("Remaining amount calculated", trace.WithAttributes(attribute.Int64("amount.remaining", remainingAmount.Int64())))
+  return remainingAmount, nil
 }
 
 // finalizeVoidTransaction finalizes the voiding of a transaction by updating its status and generating new identifiers.
@@ -1479,50 +1481,50 @@ func (l *Blnk) calculateRemainingAmount(ctx context.Context, transaction *model.
 // - *model.Transaction: A pointer to the voided Transaction model.
 // - error: An error if the transaction could not be queued.
 func (l *Blnk) finalizeVoidTransaction(ctx context.Context, transaction *model.Transaction, amountLeft *big.Int) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "FinalizeVoidTransaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "FinalizeVoidTransaction")
+  defer span.End()
 
-	// Update the transaction status to void and set the remaining amount
-	transaction.Status = StatusVoid
-	transaction.PreciseAmount = amountLeft
-	transaction.CreatedAt = time.Now()
-	transaction.ParentTransaction = transaction.TransactionID
-	transaction.TransactionID = model.GenerateUUIDWithSuffix("txn")
-	transaction.Reference = model.GenerateUUIDWithSuffix("ref")
-	transaction.Hash = transaction.HashTxn()
-	model.ApplyPrecision(transaction)
+  // Update the transaction status to void and set the remaining amount
+  transaction.Status = StatusVoid
+  transaction.PreciseAmount = amountLeft
+  transaction.CreatedAt = time.Now()
+  transaction.ParentTransaction = transaction.TransactionID
+  transaction.TransactionID = model.GenerateUUIDWithSuffix("txn")
+  transaction.Reference = model.GenerateUUIDWithSuffix("ref")
+  transaction.Hash = transaction.HashTxn()
+  model.ApplyPrecision(transaction)
 
-	// Queue the transaction for further processing
-	transaction, err := l.RecordTransaction(ctx, transaction)
-	if err != nil {
-		span.RecordError(err)
-		return nil, l.logAndRecordError(span, "saving transaction to db error", err)
-	}
+  // Queue the transaction for further processing
+  transaction, err := l.RecordTransaction(ctx, transaction)
+  if err != nil {
+    span.RecordError(err)
+    return nil, l.logAndRecordError(span, "saving transaction to db error", err)
+  }
 
-	span.AddEvent("Void transaction finalized", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
-	return transaction, nil
+  span.AddEvent("Void transaction finalized", trace.WithAttributes(attribute.String("transaction.id", transaction.TransactionID)))
+  return transaction, nil
 }
 
 // prepareTransactionForQueue prepares a transaction for queueing by setting status, metadata,
 // and resolving source/destination balances.
 func (l *Blnk) prepareTransactionForQueue(ctx context.Context, transaction *model.Transaction) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "PrepareTransactionForQueue")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "PrepareTransactionForQueue")
+  defer span.End()
 
-	setTransactionStatus(transaction)
-	setTransactionMetadata(transaction)
+  setTransactionStatus(transaction)
+  setTransactionMetadata(transaction)
 
-	// Get and update source/destination
-	sourceBalance, destinationBalance, err := l.getSourceAndDestination(ctx, transaction)
-	if err != nil {
-		span.RecordError(err)
-		return nil, fmt.Errorf("failed to get source/destination balances: %w", err)
-	}
+  // Get and update source/destination
+  sourceBalance, destinationBalance, err := l.getSourceAndDestination(ctx, transaction)
+  if err != nil {
+    span.RecordError(err)
+    return nil, fmt.Errorf("failed to get source/destination balances: %w", err)
+  }
 
-	transaction.Source = sourceBalance.BalanceID
-	transaction.Destination = destinationBalance.BalanceID
+  transaction.Source = sourceBalance.BalanceID
+  transaction.Destination = destinationBalance.BalanceID
 
-	return transaction, nil
+  return transaction, nil
 }
 
 // QueueTransaction processes and queues a transaction for execution.
@@ -1537,79 +1539,79 @@ func (l *Blnk) prepareTransactionForQueue(ctx context.Context, transaction *mode
 // - *model.Transaction: A pointer to the queued Transaction model.
 // - error: An error if the transaction could not be queued.
 func (l *Blnk) QueueTransaction(ctx context.Context, transaction *model.Transaction) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "QueueTransaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "QueueTransaction")
+  defer span.End()
 
-	// Initialize transaction metadata and status
-	originalRef := transaction.Reference
-	setTransactionMetadata(transaction)
-	setTransactionStatus(transaction)
-	originalTxnID := transaction.TransactionID
+  // Initialize transaction metadata and status
+  originalRef := transaction.Reference
+  setTransactionMetadata(transaction)
+  setTransactionStatus(transaction)
+  originalTxnID := transaction.TransactionID
 
-	// Handle split transactions if needed
-	transactions, err := l.handleSplitTransactions(ctx, transaction)
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Handle split transactions if needed
+  transactions, err := l.handleSplitTransactions(ctx, transaction)
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	// If SkipQueue is true, process synchronously
-	if transaction.SkipQueue {
-		_, err := l.processTxns(ctx, transaction, transactions, originalTxnID, originalRef)
-		if err != nil {
-			span.RecordError(err)
-			return nil, err
-		}
+  // If SkipQueue is true, process synchronously
+  if transaction.SkipQueue {
+    _, err := l.processTxns(ctx, transaction, transactions, originalTxnID, originalRef)
+    if err != nil {
+      span.RecordError(err)
+      return nil, err
+    }
 
-		// Update transaction status based on inflight flag
-		if transaction.Inflight {
-			transaction.Status = StatusInflight
-		} else {
-			transaction.Status = StatusApplied
-		}
-	} else {
-		if transaction.MetaData != nil && !transaction.SkipQueue {
-			transaction.MetaData["QUEUED_PARENT_TRANSACTION"] = originalTxnID
-		}
+    // Update transaction status based on inflight flag
+    if transaction.Inflight {
+      transaction.Status = StatusInflight
+    } else {
+      transaction.Status = StatusApplied
+    }
+  } else {
+    if transaction.MetaData != nil && !transaction.SkipQueue {
+      transaction.MetaData["QUEUED_PARENT_TRANSACTION"] = originalTxnID
+    }
 
-		if strings.Contains(transaction.ParentTransaction, "bulk") {
-			transaction.MetaData["QUEUED_PARENT_TRANSACTION"] = transaction.ParentTransaction
-		}
-		// For normal queue mode, process asynchronously
-		processTransactionAsync(context.Background(), l, transaction, originalRef, originalTxnID, transactions)
-	}
+    if strings.Contains(transaction.ParentTransaction, "bulk") {
+      transaction.MetaData["QUEUED_PARENT_TRANSACTION"] = transaction.ParentTransaction
+    }
+    // For normal queue mode, process asynchronously
+    processTransactionAsync(context.Background(), l, transaction, originalRef, originalTxnID, transactions)
+  }
 
-	span.AddEvent("Transaction successfully queued", trace.WithAttributes(
-		attribute.String("transaction.id", transaction.TransactionID),
-	))
+  span.AddEvent("Transaction successfully queued", trace.WithAttributes(
+    attribute.String("transaction.id", transaction.TransactionID),
+  ))
 
-	err = l.queue.QueueInflightExpiry(ctx, transaction)
-	if err != nil {
-		span.RecordError(err)
-		return nil, l.logAndRecordError(span, "failed to queue inflight expiry", err)
-	}
+  err = l.queue.QueueInflightExpiry(ctx, transaction)
+  if err != nil {
+    span.RecordError(err)
+    return nil, l.logAndRecordError(span, "failed to queue inflight expiry", err)
+  }
 
-	return transaction, nil
+  return transaction, nil
 }
 
 func processTransactionAsync(ctx context.Context, l *Blnk, transaction *model.Transaction, originalRef string, originalTxnID string, transactions []*model.Transaction) {
-	go func() {
-		ctx, span := tracer.Start(ctx, "ProcessTransactionAsync")
-		defer span.End()
+  go func() {
+    ctx, span := tracer.Start(ctx, "ProcessTransactionAsync")
+    defer span.End()
 
-		queueTransactions, err := l.processTxns(ctx, transaction, transactions, originalTxnID, originalRef)
-		if err != nil {
-			span.RecordError(err)
-			// return nil, err
-		}
+    queueTransactions, err := l.processTxns(ctx, transaction, transactions, originalTxnID, originalRef)
+    if err != nil {
+      span.RecordError(err)
+      // return nil, err
+    }
 
-		if !transaction.SkipQueue {
-			if err := enqueueTransactions(ctx, l.queue, transaction, queueTransactions); err != nil {
-				span.RecordError(err)
-				// return nil, err
-			}
-		}
-	}()
+    if !transaction.SkipQueue {
+      if err := enqueueTransactions(ctx, l.queue, transaction, queueTransactions); err != nil {
+        span.RecordError(err)
+        // return nil, err
+      }
+    }
+  }()
 }
 
 // handleSplitTransactions attempts to split a transaction into multiple transactions if needed.
@@ -1623,14 +1625,14 @@ func processTransactionAsync(ctx context.Context, l *Blnk, transaction *model.Tr
 // - []*model.Transaction: A slice of split transactions, or empty if no split is needed.
 // - error: An error if the transaction splitting fails.
 func (l *Blnk) handleSplitTransactions(ctx context.Context, transaction *model.Transaction) ([]*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "HandleSplitTransactions")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "HandleSplitTransactions")
+  defer span.End()
 
-	transactions, err := transaction.SplitTransactionPrecise(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to split transaction: %w", err)
-	}
-	return transactions, nil
+  transactions, err := transaction.SplitTransactionPrecise(ctx)
+  if err != nil {
+    return nil, fmt.Errorf("failed to split transaction: %w", err)
+  }
+  return transactions, nil
 }
 
 // processTxns handles the processing of transactions based on whether they are split or single.
@@ -1647,32 +1649,32 @@ func (l *Blnk) handleSplitTransactions(ctx context.Context, transaction *model.T
 // - []*model.Transaction: A slice of processed transactions ready for queueing.
 // - error: An error if the processing fails.
 func (l *Blnk) processTxns(ctx context.Context, originalTxn *model.Transaction, splitTxns []*model.Transaction, originalTxnID, originalRef string) ([]*model.Transaction, error) {
-	if originalTxn.SkipQueue {
-		if len(splitTxns) == 0 {
-			recorded, err := l.RecordTransaction(ctx, originalTxn)
-			if err != nil {
-				return nil, err
-			}
-			return []*model.Transaction{recorded}, nil
-		} else {
-			result := make([]*model.Transaction, len(splitTxns))
-			for i, txn := range splitTxns {
-				recorded, err := l.RecordTransaction(ctx, txn)
-				if err != nil {
-					if txn.Atomic {
-						l.handleAsyncBulkTransactionFailure(ctx, err, originalTxnID, true, txn.Inflight)
-					}
-					return nil, fmt.Errorf("failed to record split transaction %d: %w", i, err)
-				}
-				result[i] = recorded
-			}
-			return result, nil
-		}
-	}
-	if len(splitTxns) == 0 {
-		return l.processSingleTransaction(ctx, originalTxn, originalRef)
-	}
-	return l.processSplitTransactions(ctx, splitTxns, originalTxnID, originalRef)
+  if originalTxn.SkipQueue {
+    if len(splitTxns) == 0 {
+      recorded, err := l.RecordTransaction(ctx, originalTxn)
+      if err != nil {
+        return nil, err
+      }
+      return []*model.Transaction{recorded}, nil
+    } else {
+      result := make([]*model.Transaction, len(splitTxns))
+      for i, txn := range splitTxns {
+        recorded, err := l.RecordTransaction(ctx, txn)
+        if err != nil {
+          if txn.Atomic {
+            l.handleAsyncBulkTransactionFailure(ctx, err, originalTxnID, true, txn.Inflight)
+          }
+          return nil, fmt.Errorf("failed to record split transaction %d: %w", i, err)
+        }
+        result[i] = recorded
+      }
+      return result, nil
+    }
+  }
+  if len(splitTxns) == 0 {
+    return l.processSingleTransaction(ctx, originalTxn, originalRef)
+  }
+  return l.processSplitTransactions(ctx, splitTxns, originalTxnID, originalRef)
 }
 
 // processSingleTransaction handles the processing of a single (non-split) transaction.
@@ -1687,21 +1689,21 @@ func (l *Blnk) processTxns(ctx context.Context, originalTxn *model.Transaction, 
 // - []*model.Transaction: A slice containing the processed transaction ready for queueing.
 // - error: An error if the transaction processing fails.
 func (l *Blnk) processSingleTransaction(ctx context.Context, transaction *model.Transaction, originalRef string) ([]*model.Transaction, error) {
-	if len(transaction.Sources) == 0 && len(transaction.Destinations) == 0 {
-		preparedTxn, err := l.prepareTransactionForQueue(ctx, transaction)
-		if err != nil {
-			return nil, err
-		}
-		transaction = preparedTxn
-	}
+  if len(transaction.Sources) == 0 && len(transaction.Destinations) == 0 {
+    preparedTxn, err := l.prepareTransactionForQueue(ctx, transaction)
+    if err != nil {
+      return nil, err
+    }
+    transaction = preparedTxn
+  }
 
-	persistedTxn, err := l.datasource.RecordTransaction(ctx, transaction)
-	if err != nil {
-		return nil, fmt.Errorf("failed to persist original transaction: %w", err)
-	}
+  persistedTxn, err := l.datasource.RecordTransaction(ctx, transaction)
+  if err != nil {
+    return nil, fmt.Errorf("failed to persist original transaction: %w", err)
+  }
 
-	queueTxn := createQueueCopy(persistedTxn, originalRef)
-	return []*model.Transaction{queueTxn}, nil
+  queueTxn := createQueueCopy(persistedTxn, originalRef)
+  return []*model.Transaction{queueTxn}, nil
 }
 
 // processSplitTransactions handles the processing of multiple split transactions.
@@ -1717,26 +1719,26 @@ func (l *Blnk) processSingleTransaction(ctx context.Context, transaction *model.
 // - []*model.Transaction: A slice of processed transactions ready for queueing.
 // - error: An error if any transaction processing fails.
 func (l *Blnk) processSplitTransactions(ctx context.Context, transactions []*model.Transaction, originalTxnID, originalRef string) ([]*model.Transaction, error) {
-	queueTransactions := make([]*model.Transaction, len(transactions))
-	updateSplitTransactions(transactions, originalTxnID, originalRef)
+  queueTransactions := make([]*model.Transaction, len(transactions))
+  updateSplitTransactions(transactions, originalTxnID, originalRef)
 
-	for i, splitTxn := range transactions {
-		preparedSplitTxn, err := l.prepareTransactionForQueue(ctx, splitTxn)
-		if err != nil {
-			return nil, fmt.Errorf("failed to prepare split transaction %d: %w", i, err)
-		}
+  for i, splitTxn := range transactions {
+    preparedSplitTxn, err := l.prepareTransactionForQueue(ctx, splitTxn)
+    if err != nil {
+      return nil, fmt.Errorf("failed to prepare split transaction %d: %w", i, err)
+    }
 
-		// Persist the original transaction
-		persistedTxn, err := l.datasource.RecordTransaction(ctx, preparedSplitTxn)
-		if err != nil {
-			return nil, fmt.Errorf("failed to persist original transaction: %w", err)
-		}
+    // Persist the original transaction
+    persistedTxn, err := l.datasource.RecordTransaction(ctx, preparedSplitTxn)
+    if err != nil {
+      return nil, fmt.Errorf("failed to persist original transaction: %w", err)
+    }
 
-		queueTxn := createQueueCopy(persistedTxn, splitTxn.Reference)
-		queueTransactions[i] = queueTxn
-	}
+    queueTxn := createQueueCopy(persistedTxn, splitTxn.Reference)
+    queueTransactions[i] = queueTxn
+  }
 
-	return queueTransactions, nil
+  return queueTransactions, nil
 }
 
 // setTransactionStatus determines and sets the appropriate status for a transaction.
@@ -1747,11 +1749,11 @@ func (l *Blnk) processSplitTransactions(ctx context.Context, transactions []*mod
 // Parameters:
 // - transaction *model.Transaction: The transaction for which to set the status.
 func setTransactionStatus(transaction *model.Transaction) {
-	if !transaction.ScheduledFor.IsZero() {
-		transaction.Status = StatusScheduled
-	} else if transaction.Status == "" {
-		transaction.Status = StatusQueued
-	}
+  if !transaction.ScheduledFor.IsZero() {
+    transaction.Status = StatusScheduled
+  } else if transaction.Status == "" {
+    transaction.Status = StatusQueued
+  }
 }
 
 // setTransactionMetadata initializes and sets the required metadata for a transaction.
@@ -1760,25 +1762,25 @@ func setTransactionStatus(transaction *model.Transaction) {
 // Parameters:
 // - transaction *model.Transaction: The transaction for which to set metadata.
 func setTransactionMetadata(transaction *model.Transaction) {
-	transaction.CreatedAt = time.Now()
-	transaction.Hash = transaction.HashTxn()
-	transaction.PreciseAmount = model.ApplyPrecision(transaction)
-	if transaction.TransactionID == "" {
-		transaction.TransactionID = model.GenerateUUIDWithSuffix("txn")
-	}
-	if transaction.Rate == 0 {
-		transaction.Rate = 1
-	}
+  transaction.CreatedAt = time.Now()
+  transaction.Hash = transaction.HashTxn()
+  transaction.PreciseAmount = model.ApplyPrecision(transaction)
+  if transaction.TransactionID == "" {
+    transaction.TransactionID = model.GenerateUUIDWithSuffix("txn")
+  }
+  if transaction.Rate == 0 {
+    transaction.Rate = 1
+  }
 
-	// Initialize metadata if it doesn't exist
-	if transaction.MetaData == nil {
-		transaction.MetaData = make(map[string]interface{})
-	}
+  // Initialize metadata if it doesn't exist
+  if transaction.MetaData == nil {
+    transaction.MetaData = make(map[string]interface{})
+  }
 
-	// Set inflight flag in metadata if the transaction is inflight
-	if transaction.Inflight {
-		transaction.MetaData["inflight"] = true
-	}
+  // Set inflight flag in metadata if the transaction is inflight
+  if transaction.Inflight {
+    transaction.MetaData["inflight"] = true
+  }
 }
 
 // createQueueCopy creates a new copy of a transaction specifically for queueing.
@@ -1791,11 +1793,11 @@ func setTransactionMetadata(transaction *model.Transaction) {
 // Returns:
 // - *model.Transaction: A pointer to the new queue copy of the transaction.
 func createQueueCopy(persistedTxn *model.Transaction, originalRef string) *model.Transaction {
-	queueTxn := *persistedTxn
-	queueTxn.TransactionID = model.GenerateUUIDWithSuffix("txn")
-	queueTxn.ParentTransaction = persistedTxn.TransactionID
-	queueTxn.Reference = fmt.Sprintf("%s_q", originalRef)
-	return &queueTxn
+  queueTxn := *persistedTxn
+  queueTxn.TransactionID = model.GenerateUUIDWithSuffix("txn")
+  queueTxn.ParentTransaction = persistedTxn.TransactionID
+  queueTxn.Reference = fmt.Sprintf("%s_q", originalRef)
+  return &queueTxn
 }
 
 // updateSplitTransactions updates the metadata of split transactions to maintain their relationships.
@@ -1806,10 +1808,10 @@ func createQueueCopy(persistedTxn *model.Transaction, originalRef string) *model
 // - parentID string: The ID of the parent transaction.
 // - originalRef string: The original reference to base the new references on.
 func updateSplitTransactions(transactions []*model.Transaction, parentID, originalRef string) {
-	for i, txn := range transactions {
-		txn.ParentTransaction = parentID
-		txn.Reference = fmt.Sprintf("%s_%d", originalRef, i+1)
-	}
+  for i, txn := range transactions {
+    txn.ParentTransaction = parentID
+    txn.Reference = fmt.Sprintf("%s_%d", originalRef, i+1)
+  }
 }
 
 // enqueueTransactions enqueues the original transaction or its split transactions into the provided queue.
@@ -1825,20 +1827,20 @@ func updateSplitTransactions(transactions []*model.Transaction, parentID, origin
 // Returns:
 // - error: An error if any of the transactions could not be enqueued.
 func enqueueTransactions(ctx context.Context, queue *Queue, originalTransaction *model.Transaction, splitTransactions []*model.Transaction) error {
-	transactionsToEnqueue := splitTransactions
-	if len(transactionsToEnqueue) == 0 {
-		transactionsToEnqueue = []*model.Transaction{originalTransaction}
-	}
+  transactionsToEnqueue := splitTransactions
+  if len(transactionsToEnqueue) == 0 {
+    transactionsToEnqueue = []*model.Transaction{originalTransaction}
+  }
 
-	for _, txn := range transactionsToEnqueue {
-		if err := queue.Enqueue(ctx, txn); err != nil {
-			notification.NotifyError(err)
-			logrus.Errorf("Error queuing transaction: %v", err)
-			return err
-		}
-	}
+  for _, txn := range transactionsToEnqueue {
+    if err := queue.Enqueue(ctx, txn); err != nil {
+      notification.NotifyError(err)
+      logrus.Errorf("Error queuing transaction: %v", err)
+      return err
+    }
+  }
 
-	return nil
+  return nil
 }
 
 // GetTransaction retrieves a transaction by its ID from the datasource.
@@ -1852,18 +1854,18 @@ func enqueueTransactions(ctx context.Context, queue *Queue, originalTransaction 
 // - *model.Transaction: A pointer to the retrieved Transaction model.
 // - error: An error if the transaction could not be retrieved.
 func (l *Blnk) GetTransaction(ctx context.Context, TransactionID string) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "GetTransaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "GetTransaction")
+  defer span.End()
 
-	// Fetch the transaction from the datasource
-	transaction, err := l.datasource.GetTransaction(ctx, TransactionID)
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Fetch the transaction from the datasource
+  transaction, err := l.datasource.GetTransaction(ctx, TransactionID)
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	span.AddEvent("Transaction retrieved", trace.WithAttributes(attribute.String("transaction.id", TransactionID)))
-	return transaction, nil
+  span.AddEvent("Transaction retrieved", trace.WithAttributes(attribute.String("transaction.id", TransactionID)))
+  return transaction, nil
 }
 
 // GetAllTransactions retrieves all transactions from the datasource.
@@ -1873,18 +1875,18 @@ func (l *Blnk) GetTransaction(ctx context.Context, TransactionID string) (*model
 // - []model.Transaction: A slice of all retrieved Transaction models.
 // - error: An error if the transactions could not be retrieved.
 func (l *Blnk) GetAllTransactions(limit, offset int) ([]model.Transaction, error) {
-	ctx, span := tracer.Start(context.Background(), "GetAllTransactions")
-	defer span.End()
+  ctx, span := tracer.Start(context.Background(), "GetAllTransactions")
+  defer span.End()
 
-	// Fetch all transactions from the datasource
-	transactions, err := l.datasource.GetAllTransactions(ctx, limit, offset)
-	if err != nil {
-		span.RecordError(err)
-		return nil, err
-	}
+  // Fetch all transactions from the datasource
+  transactions, err := l.datasource.GetAllTransactions(ctx, limit, offset)
+  if err != nil {
+    span.RecordError(err)
+    return nil, err
+  }
 
-	span.AddEvent("All transactions retrieved")
-	return transactions, nil
+  span.AddEvent("All transactions retrieved")
+  return transactions, nil
 }
 
 // GetTransactionByRef retrieves a transaction by its reference from the datasource.
@@ -1898,18 +1900,18 @@ func (l *Blnk) GetAllTransactions(limit, offset int) ([]model.Transaction, error
 // - model.Transaction: The retrieved Transaction model.
 // - error: An error if the transaction could not be retrieved.
 func (l *Blnk) GetTransactionByRef(ctx context.Context, reference string) (model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "GetTransactionByRef")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "GetTransactionByRef")
+  defer span.End()
 
-	// Fetch the transaction by reference from the datasource
-	transaction, err := l.datasource.GetTransactionByRef(ctx, reference)
-	if err != nil {
-		span.RecordError(err)
-		return model.Transaction{}, err
-	}
+  // Fetch the transaction by reference from the datasource
+  transaction, err := l.datasource.GetTransactionByRef(ctx, reference)
+  if err != nil {
+    span.RecordError(err)
+    return model.Transaction{}, err
+  }
 
-	span.AddEvent("Transaction retrieved by reference", trace.WithAttributes(attribute.String("transaction.reference", reference)))
-	return transaction, nil
+  span.AddEvent("Transaction retrieved by reference", trace.WithAttributes(attribute.String("transaction.reference", reference)))
+  return transaction, nil
 }
 
 // UpdateTransactionStatus updates the status of a transaction by its ID in the datasource.
@@ -1923,103 +1925,103 @@ func (l *Blnk) GetTransactionByRef(ctx context.Context, reference string) (model
 // Returns:
 // - error: An error if the transaction status could not be updated.
 func (l *Blnk) UpdateTransactionStatus(ctx context.Context, id string, status string) error {
-	ctx, span := tracer.Start(ctx, "UpdateTransactionStatus")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "UpdateTransactionStatus")
+  defer span.End()
 
-	// Update the transaction status in the datasource
-	err := l.datasource.UpdateTransactionStatus(ctx, id, status)
-	if err != nil {
-		span.RecordError(err)
-		return err
-	}
+  // Update the transaction status in the datasource
+  err := l.datasource.UpdateTransactionStatus(ctx, id, status)
+  if err != nil {
+    span.RecordError(err)
+    return err
+  }
 
-	span.AddEvent("Transaction status updated", trace.WithAttributes(attribute.String("transaction.id", id), attribute.String("transaction.status", status)))
-	return nil
+  span.AddEvent("Transaction status updated", trace.WithAttributes(attribute.String("transaction.id", id), attribute.String("transaction.status", status)))
+  return nil
 }
 
 // getOriginalTransactionForRefund retrieves the original transaction to be refunded,
 // checking both the database and the queue if necessary.
 func (l *Blnk) getOriginalTransactionForRefund(ctx context.Context, transactionID string) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "getOriginalTransactionForRefund")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "getOriginalTransactionForRefund")
+  defer span.End()
 
-	originalTxn, err := l.datasource.GetTransaction(ctx, transactionID)
-	if err != nil {
-		// Check if the error is due to no row found
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), fmt.Sprintf("Transaction with ID '%s' not found", transactionID)) {
-			// Check the queue for the transaction
-			queuedTxn, queueErr := l.queue.GetTransactionFromQueue(transactionID)
-			if queueErr != nil {
-				span.RecordError(queueErr)
-				// Return the original DB error if queue retrieval also fails
-				return nil, fmt.Errorf("transaction %s not found in DB or queue: %w", transactionID, err)
-			}
-			if queuedTxn == nil {
-				err := fmt.Errorf("transaction %s not found in DB or queue", transactionID)
-				span.RecordError(err)
-				return nil, err
-			}
-			span.AddEvent("Transaction found in queue", trace.WithAttributes(attribute.String("transaction.id", transactionID)))
-			return queuedTxn, nil // Return the transaction found in the queue
-		}
-		// Return other database errors directly
-		span.RecordError(err)
-		return nil, fmt.Errorf("failed to get transaction %s from DB: %w", transactionID, err)
-	}
-	span.AddEvent("Transaction found in DB", trace.WithAttributes(attribute.String("transaction.id", transactionID)))
-	return originalTxn, nil
+  originalTxn, err := l.datasource.GetTransaction(ctx, transactionID)
+  if err != nil {
+    // Check if the error is due to no row found
+    if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), fmt.Sprintf("Transaction with ID '%s' not found", transactionID)) {
+      // Check the queue for the transaction
+      queuedTxn, queueErr := l.queue.GetTransactionFromQueue(transactionID)
+      if queueErr != nil {
+        span.RecordError(queueErr)
+        // Return the original DB error if queue retrieval also fails
+        return nil, fmt.Errorf("transaction %s not found in DB or queue: %w", transactionID, err)
+      }
+      if queuedTxn == nil {
+        err := fmt.Errorf("transaction %s not found in DB or queue", transactionID)
+        span.RecordError(err)
+        return nil, err
+      }
+      span.AddEvent("Transaction found in queue", trace.WithAttributes(attribute.String("transaction.id", transactionID)))
+      return queuedTxn, nil // Return the transaction found in the queue
+    }
+    // Return other database errors directly
+    span.RecordError(err)
+    return nil, fmt.Errorf("failed to get transaction %s from DB: %w", transactionID, err)
+  }
+  span.AddEvent("Transaction found in DB", trace.WithAttributes(attribute.String("transaction.id", transactionID)))
+  return originalTxn, nil
 }
 
 // validateTransactionForRefund checks if the given transaction is eligible for a refund.
 func (l *Blnk) validateTransactionForRefund(ctx context.Context, originalTxn *model.Transaction) error {
-	ctx, span := tracer.Start(ctx, "validateTransactionForRefund")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "validateTransactionForRefund")
+  defer span.End()
 
-	// Validate the transaction status
-	if originalTxn.Status == StatusRejected {
-		err := fmt.Errorf("transaction %s is not in a state that can be refunded (status: %s)", originalTxn.TransactionID, originalTxn.Status)
-		span.RecordError(err)
-		return err
-	}
+  // Validate the transaction status
+  if originalTxn.Status == StatusRejected {
+    err := fmt.Errorf("transaction %s is not in a state that can be refunded (status: %s)", originalTxn.TransactionID, originalTxn.Status)
+    span.RecordError(err)
+    return err
+  }
 
-	// Check if the transaction has already been refunded
-	isRefunded, err := l.datasource.IsTransactionRefunded(ctx, originalTxn)
-	if err != nil {
-		span.RecordError(err)
-		return fmt.Errorf("failed to check if transaction %s was already refunded: %w", originalTxn.TransactionID, err)
-	}
-	if isRefunded {
-		err := fmt.Errorf("transaction %s has already been refunded", originalTxn.TransactionID)
-		span.RecordError(err)
-		return err
-	}
+  // Check if the transaction has already been refunded
+  isRefunded, err := l.datasource.IsTransactionRefunded(ctx, originalTxn)
+  if err != nil {
+    span.RecordError(err)
+    return fmt.Errorf("failed to check if transaction %s was already refunded: %w", originalTxn.TransactionID, err)
+  }
+  if isRefunded {
+    err := fmt.Errorf("transaction %s has already been refunded", originalTxn.TransactionID)
+    span.RecordError(err)
+    return err
+  }
 
-	span.AddEvent("Transaction validated for refund", trace.WithAttributes(attribute.String("transaction.id", originalTxn.TransactionID)))
-	return nil
+  span.AddEvent("Transaction validated for refund", trace.WithAttributes(attribute.String("transaction.id", originalTxn.TransactionID)))
+  return nil
 }
 
 // prepareRefundTransaction creates and configures a new transaction object for the refund.
 func prepareRefundTransaction(originalTxn *model.Transaction, skipQueue bool) *model.Transaction {
-	newTransaction := *originalTxn // Create a copy
-	newTransaction.TransactionID = model.GenerateUUIDWithSuffix("txn")
-	newTransaction.Reference = model.GenerateUUIDWithSuffix("ref")
-	newTransaction.ParentTransaction = originalTxn.TransactionID
-	newTransaction.Source = originalTxn.Destination // Swap source and destination
-	newTransaction.Destination = originalTxn.Source
-	newTransaction.AllowOverdraft = true
-	newTransaction.SkipQueue = skipQueue
+  newTransaction := *originalTxn // Create a copy
+  newTransaction.TransactionID = model.GenerateUUIDWithSuffix("txn")
+  newTransaction.Reference = model.GenerateUUIDWithSuffix("ref")
+  newTransaction.ParentTransaction = originalTxn.TransactionID
+  newTransaction.Source = originalTxn.Destination // Swap source and destination
+  newTransaction.Destination = originalTxn.Source
+  newTransaction.AllowOverdraft = true
+  newTransaction.SkipQueue = skipQueue
 
-	// Adjust status based on original status for proper processing
-	if originalTxn.Status == StatusVoid {
-		// If original was voided, the refund should process like an inflight reversal
-		newTransaction.Inflight = true
-		newTransaction.Status = "" // Reset status to let QueueTransaction handle it
-	} else {
-		newTransaction.Status = "" // Reset status for standard queuing
-		newTransaction.Inflight = false
-	}
+  // Adjust status based on original status for proper processing
+  if originalTxn.Status == StatusVoid {
+    // If original was voided, the refund should process like an inflight reversal
+    newTransaction.Inflight = true
+    newTransaction.Status = "" // Reset status to let QueueTransaction handle it
+  } else {
+    newTransaction.Status = "" // Reset status for standard queuing
+    newTransaction.Inflight = false
+  }
 
-	return &newTransaction
+  return &newTransaction
 }
 
 // RefundTransaction processes a refund for a given transaction by its ID.
@@ -2033,165 +2035,165 @@ func prepareRefundTransaction(originalTxn *model.Transaction, skipQueue bool) *m
 // - *model.Transaction: A pointer to the refunded Transaction model.
 // - error: An error if the transaction could not be refunded.
 func (l *Blnk) RefundTransaction(ctx context.Context, transactionID string, skipQueue bool) (*model.Transaction, error) {
-	ctx, span := tracer.Start(ctx, "RefundTransaction")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "RefundTransaction")
+  defer span.End()
 
-	// 1. Retrieve the original transaction (from DB or Queue)
-	originalTxn, err := l.getOriginalTransactionForRefund(ctx, transactionID)
-	if err != nil {
-		span.RecordError(err)
-		return nil, err // Error includes context from the helper function
-	}
+  // 1. Retrieve the original transaction (from DB or Queue)
+  originalTxn, err := l.getOriginalTransactionForRefund(ctx, transactionID)
+  if err != nil {
+    span.RecordError(err)
+    return nil, err // Error includes context from the helper function
+  }
 
-	// 2. Validate if the transaction can be refunded
-	if err := l.validateTransactionForRefund(ctx, originalTxn); err != nil {
-		span.RecordError(err)
-		return nil, err // Error includes context from the helper function
-	}
+  // 2. Validate if the transaction can be refunded
+  if err := l.validateTransactionForRefund(ctx, originalTxn); err != nil {
+    span.RecordError(err)
+    return nil, err // Error includes context from the helper function
+  }
 
-	// 3. Prepare the refund transaction object
-	refundTxnObject := prepareRefundTransaction(originalTxn, skipQueue)
+  // 3. Prepare the refund transaction object
+  refundTxnObject := prepareRefundTransaction(originalTxn, skipQueue)
 
-	// 4. Queue the refund transaction for processing
-	queuedRefundTxn, err := l.QueueTransaction(ctx, refundTxnObject)
-	if err != nil {
-		span.RecordError(err)
-		return nil, fmt.Errorf("failed to queue refund transaction %s: %w", refundTxnObject.TransactionID, err)
-	}
+  // 4. Queue the refund transaction for processing
+  queuedRefundTxn, err := l.QueueTransaction(ctx, refundTxnObject)
+  if err != nil {
+    span.RecordError(err)
+    return nil, fmt.Errorf("failed to queue refund transaction %s: %w", refundTxnObject.TransactionID, err)
+  }
 
-	span.AddEvent("Refund transaction queued", trace.WithAttributes(attribute.String("refund.transaction.id", queuedRefundTxn.TransactionID)))
-	return queuedRefundTxn, nil
+  span.AddEvent("Refund transaction queued", trace.WithAttributes(attribute.String("refund.transaction.id", queuedRefundTxn.TransactionID)))
+  return queuedRefundTxn, nil
 }
 
 // processBulkTransactions prepares and queues all transactions in a batch with the given batch ID
 func (l *Blnk) processBulkTransactions(ctx context.Context, transactions []*model.Transaction, batchID string, inflight bool, skipQueue bool) error {
-	for i, txn := range transactions {
-		// Set transaction properties
-		txn.Inflight = inflight
-		txn.SkipQueue = skipQueue // Process synchronously within the batch context first
-		txn.ParentTransaction = batchID
+  for i, txn := range transactions {
+    // Set transaction properties
+    txn.Inflight = inflight
+    txn.SkipQueue = skipQueue // Process synchronously within the batch context first
+    txn.ParentTransaction = batchID
 
-		// Add sequence number to metadata
-		if txn.MetaData == nil {
-			txn.MetaData = make(map[string]interface{})
-		}
-		txn.MetaData["sequence"] = i + 1
+    // Add sequence number to metadata
+    if txn.MetaData == nil {
+      txn.MetaData = make(map[string]interface{})
+    }
+    txn.MetaData["sequence"] = i + 1
 
-		// Queue the transaction (which will record it if SkipQueue is true)
-		if _, err := l.QueueTransaction(ctx, txn); err != nil {
-			// Create a more descriptive error that includes transaction reference details
-			return fmt.Errorf("failed to queue transaction %d (Reference: %s, Source: %s, Destination: %s, Amount: %.2f): %w",
-				i+1, txn.Reference, txn.Source, txn.Destination, txn.Amount, err)
-		}
-	}
-	return nil
+    // Queue the transaction (which will record it if SkipQueue is true)
+    if _, err := l.QueueTransaction(ctx, txn); err != nil {
+      // Create a more descriptive error that includes transaction reference details
+      return fmt.Errorf("failed to queue transaction %d (Reference: %s, Source: %s, Destination: %s, Amount: %.2f): %w",
+        i+1, txn.Reference, txn.Source, txn.Destination, txn.Amount, err)
+    }
+  }
+  return nil
 }
 
 // rollbackBatchTransactions performs a rollback of transactions in a batch
 // Returns the action performed (voided/refunded) and any error that occurred
 func (l *Blnk) rollbackBatchTransactions(ctx context.Context, batchID string, isInflight bool) (string, error) {
-	var action string
-	var rollbackErr error
+  var action string
+  var rollbackErr error
 
-	if isInflight {
-		action, rollbackErr = l.voidInflightBatchTransactions(ctx, batchID)
-	} else {
-		action, rollbackErr = l.refundNonInflightBatchTransactions(ctx, batchID)
-	}
+  if isInflight {
+    action, rollbackErr = l.voidInflightBatchTransactions(ctx, batchID)
+  } else {
+    action, rollbackErr = l.refundNonInflightBatchTransactions(ctx, batchID)
+  }
 
-	l.logRollbackResult(batchID, action, rollbackErr)
-	return action, rollbackErr
+  l.logRollbackResult(batchID, action, rollbackErr)
+  return action, rollbackErr
 }
 
 // voidInflightBatchTransactions voids all inflight transactions in a batch
 func (l *Blnk) voidInflightBatchTransactions(ctx context.Context, batchID string) (string, error) {
-	_, err := l.ProcessTransactionInBatches(
-		ctx,
-		batchID,
-		big.NewInt(0),
-		1, // Assuming 1 worker is sufficient for rollback, adjust if needed
-		false,
-		l.GetInflightTransactionsByParentID,
-		l.VoidWorker,
-	)
-	return "voided", err
+  _, err := l.ProcessTransactionInBatches(
+    ctx,
+    batchID,
+    big.NewInt(0),
+    1, // Assuming 1 worker is sufficient for rollback, adjust if needed
+    false,
+    l.GetInflightTransactionsByParentID,
+    l.VoidWorker,
+  )
+  return "voided", err
 }
 
 // refundNonInflightBatchTransactions refunds all non-inflight transactions in a batch
 func (l *Blnk) refundNonInflightBatchTransactions(ctx context.Context, batchID string) (string, error) {
-	_, err := l.ProcessTransactionInBatches(
-		ctx,
-		batchID,
-		big.NewInt(0),
-		1, // Assuming 1 worker is sufficient for rollback, adjust if needed
-		false,
-		l.GetRefundableTransactionsByParentID,
-		l.RefundWorker,
-	)
-	return "refunded", err
+  _, err := l.ProcessTransactionInBatches(
+    ctx,
+    batchID,
+    big.NewInt(0),
+    1, // Assuming 1 worker is sufficient for rollback, adjust if needed
+    false,
+    l.GetRefundableTransactionsByParentID,
+    l.RefundWorker,
+  )
+  return "refunded", err
 }
 
 // logRollbackResult logs the outcome of a rollback operation
 func (l *Blnk) logRollbackResult(batchID string, action string, err error) {
-	if err != nil {
-		logrus.Errorf("Failed to rollback batch transactions for %s: %s", batchID, err.Error())
-	} else {
-		logrus.Infof("Successfully rolled back atomic batch %s (%s)", batchID, action)
-	}
+  if err != nil {
+    logrus.Errorf("Failed to rollback batch transactions for %s: %s", batchID, err.Error())
+  } else {
+    logrus.Infof("Successfully rolled back atomic batch %s (%s)", batchID, action)
+  }
 }
 
 // sendBulkTransactionWebhook sends a webhook notification for a bulk transaction result
 func (l *Blnk) sendBulkTransactionWebhook(batchID, status, errorMsg string, transactionCount int) {
-	// Create payload with or without error info depending on status
-	payload := map[string]interface{}{
-		"batch_id":  batchID,
-		"status":    status,
-		"timestamp": time.Now(),
-	}
+  // Create payload with or without error info depending on status
+  payload := map[string]interface{}{
+    "batch_id":  batchID,
+    "status":    status,
+    "timestamp": time.Now(),
+  }
 
-	// Only include transaction count for success cases
-	if status != "failed" {
-		payload["transaction_count"] = transactionCount
-	}
+  // Only include transaction count for success cases
+  if status != "failed" {
+    payload["transaction_count"] = transactionCount
+  }
 
-	// Include error details for failure cases
-	if status == "failed" && errorMsg != "" {
-		payload["error"] = errorMsg
-	}
+  // Include error details for failure cases
+  if status == "failed" && errorMsg != "" {
+    payload["error"] = errorMsg
+  }
 
-	err := l.SendWebhook(NewWebhook{
-		Event:   "bulk_transaction." + status,
-		Payload: payload,
-	})
-	if err != nil {
-		logrus.Errorf("Failed to send webhook notification for batch %s: %s", batchID, err.Error())
-	}
+  err := l.SendWebhook(NewWebhook{
+    Event:   "bulk_transaction." + status,
+    Payload: payload,
+  })
+  if err != nil {
+    logrus.Errorf("Failed to send webhook notification for batch %s: %s", batchID, err.Error())
+  }
 }
 
 // handleAsyncBulkTransactionFailure handles failures in asynchronous processing
 // and builds a detailed error message including rollback status
 func (l *Blnk) handleAsyncBulkTransactionFailure(ctx context.Context, err error, batchID string, isAtomic bool, isInflight bool) {
-	logrus.Errorf("Async bulk transaction error for batch %s: %s", batchID, err.Error())
+  logrus.Errorf("Async bulk transaction error for batch %s: %s", batchID, err.Error())
 
-	var errorMessage string
+  var errorMessage string
 
-	if isAtomic {
-		action, rollbackErr := l.rollbackBatchTransactions(ctx, batchID, isInflight)
+  if isAtomic {
+    action, rollbackErr := l.rollbackBatchTransactions(ctx, batchID, isInflight)
 
-		if rollbackErr != nil {
-			errorMessage = fmt.Sprintf("%s. Failed to roll back all transactions: %s", err.Error(), rollbackErr.Error())
-			logrus.Errorf("Failed to roll back batch %s: %s", batchID, rollbackErr.Error())
-		} else {
-			errorMessage = fmt.Sprintf("%s. All transactions in this batch have been %s.", err.Error(), action)
-			logrus.Infof("Successfully rolled back async batch %s (%s)", batchID, action)
-		}
-	} else {
-		// If not atomic, just include the original error and note about no rollback
-		errorMessage = fmt.Sprintf("%s. Previous transactions were not rolled back.", err.Error())
-	}
+    if rollbackErr != nil {
+      errorMessage = fmt.Sprintf("%s. Failed to roll back all transactions: %s", err.Error(), rollbackErr.Error())
+      logrus.Errorf("Failed to roll back batch %s: %s", batchID, rollbackErr.Error())
+    } else {
+      errorMessage = fmt.Sprintf("%s. All transactions in this batch have been %s.", err.Error(), action)
+      logrus.Infof("Successfully rolled back async batch %s (%s)", batchID, action)
+    }
+  } else {
+    // If not atomic, just include the original error and note about no rollback
+    errorMessage = fmt.Sprintf("%s. Previous transactions were not rolled back.", err.Error())
+  }
 
-	// Send webhook with the complete error message including rollback status
-	l.sendBulkTransactionWebhook(batchID, "failed", errorMessage, 0) // 0 count for failed batch
+  // Send webhook with the complete error message including rollback status
+  l.sendBulkTransactionWebhook(batchID, "failed", errorMessage, 0) // 0 count for failed batch
 }
 
 // CreateBulkTransactions handles the creation of multiple transactions in a batch.
@@ -2199,87 +2201,87 @@ func (l *Blnk) handleAsyncBulkTransactionFailure(ctx context.Context, err error,
 // If atomic is false: Failures will stop processing but previous transactions remain unaffected.
 // If run_async is true: Processing happens in background with webhook notifications.
 func (l *Blnk) CreateBulkTransactions(ctx context.Context, req *model.BulkTransactionRequest) (*model.BulkTransactionResult, error) {
-	ctx, span := tracer.Start(ctx, "Blnk.CreateBulkTransactions")
-	defer span.End()
+  ctx, span := tracer.Start(ctx, "Blnk.CreateBulkTransactions")
+  defer span.End()
 
-	// Generate batch ID (parent transaction ID)
-	batchID := model.GenerateUUIDWithSuffix("bulk")
-	span.SetAttributes(attribute.String("batch.id", batchID))
+  // Generate batch ID (parent transaction ID)
+  batchID := model.GenerateUUIDWithSuffix("bulk")
+  span.SetAttributes(attribute.String("batch.id", batchID))
 
-	// Check if this should be run asynchronously
-	if req.RunAsync {
-		// Start processing in background
-		go func() {
-			// Create a background context with timeout
-			bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute) // TODO: Make timeout configurable
-			defer cancel()
+  // Check if this should be run asynchronously
+  if req.RunAsync {
+    // Start processing in background
+    go func() {
+      // Create a background context with timeout
+      bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute) // TODO: Make timeout configurable
+      defer cancel()
 
-			logrus.Infof("Starting async bulk transaction batch %s with %d transactions (atomic: %v, inflight: %v)",
-				batchID, len(req.Transactions), req.Atomic, req.Inflight)
+      logrus.Infof("Starting async bulk transaction batch %s with %d transactions (atomic: %v, inflight: %v)",
+        batchID, len(req.Transactions), req.Atomic, req.Inflight)
 
-			// Process transactions in batch
-			err := l.processBulkTransactions(bgCtx, req.Transactions, batchID, req.Inflight, req.SkipQueue)
+      // Process transactions in batch
+      err := l.processBulkTransactions(bgCtx, req.Transactions, batchID, req.Inflight, req.SkipQueue)
 
-			if err != nil {
-				// Handle failure (rollback if atomic, send webhook)
-				l.handleAsyncBulkTransactionFailure(bgCtx, err, batchID, req.Atomic, req.Inflight)
-			} else {
-				// Send webhook notification for success
-				status := "inflight"
-				if !req.Inflight {
-					status = "applied"
-				}
-				l.sendBulkTransactionWebhook(batchID, status, "", len(req.Transactions))
-				logrus.Infof("Completed async bulk transaction batch %s successfully", batchID)
-			}
-		}()
+      if err != nil {
+        // Handle failure (rollback if atomic, send webhook)
+        l.handleAsyncBulkTransactionFailure(bgCtx, err, batchID, req.Atomic, req.Inflight)
+      } else {
+        // Send webhook notification for success
+        status := "inflight"
+        if !req.Inflight {
+          status = "applied"
+        }
+        l.sendBulkTransactionWebhook(batchID, status, "", len(req.Transactions))
+        logrus.Infof("Completed async bulk transaction batch %s successfully", batchID)
+      }
+    }()
 
-		// Return immediate response indicating async processing started
-		return &model.BulkTransactionResult{
-			BatchID: batchID,
-			Status:  "processing", // Indicate that it's running in the background
-		}, nil
-	}
+    // Return immediate response indicating async processing started
+    return &model.BulkTransactionResult{
+      BatchID: batchID,
+      Status:  "processing", // Indicate that it's running in the background
+    }, nil
+  }
 
-	// Synchronous processing
-	logrus.Infof("Starting sync bulk transaction batch %s with %d transactions (atomic: %v, inflight: %v)",
-		batchID, len(req.Transactions), req.Atomic, req.Inflight)
+  // Synchronous processing
+  logrus.Infof("Starting sync bulk transaction batch %s with %d transactions (atomic: %v, inflight: %v)",
+    batchID, len(req.Transactions), req.Atomic, req.Inflight)
 
-	// Process transactions in batch
-	if err := l.processBulkTransactions(ctx, req.Transactions, batchID, req.Inflight, req.SkipQueue); err != nil {
-		span.RecordError(err)
-		logrus.Errorf("Sync bulk transaction error for batch %s: %s", batchID, err.Error())
+  // Process transactions in batch
+  if err := l.processBulkTransactions(ctx, req.Transactions, batchID, req.Inflight, req.SkipQueue); err != nil {
+    span.RecordError(err)
+    logrus.Errorf("Sync bulk transaction error for batch %s: %s", batchID, err.Error())
 
-		var responseError string
-		if req.Atomic {
-			action, rollbackErr := l.rollbackBatchTransactions(ctx, batchID, req.Inflight)
-			if rollbackErr != nil {
-				responseError = fmt.Sprintf("%s. Failed to roll back all transactions: %s", err.Error(), rollbackErr.Error())
-			} else {
-				responseError = fmt.Sprintf("%s. All transactions in this batch have been %s.", err.Error(), action)
-			}
-		} else {
-			responseError = fmt.Sprintf("%s. Previous transactions were not rolled back.", err.Error())
-		}
+    var responseError string
+    if req.Atomic {
+      action, rollbackErr := l.rollbackBatchTransactions(ctx, batchID, req.Inflight)
+      if rollbackErr != nil {
+        responseError = fmt.Sprintf("%s. Failed to roll back all transactions: %s", err.Error(), rollbackErr.Error())
+      } else {
+        responseError = fmt.Sprintf("%s. All transactions in this batch have been %s.", err.Error(), action)
+      }
+    } else {
+      responseError = fmt.Sprintf("%s. Previous transactions were not rolled back.", err.Error())
+    }
 
-		// Return error result for synchronous failure
-		return &model.BulkTransactionResult{
-			BatchID: batchID,
-			Status:  "failed",
-			Error:   responseError,
-		}, errors.New(responseError) // Return the error itself as well
-	}
+    // Return error result for synchronous failure
+    return &model.BulkTransactionResult{
+      BatchID: batchID,
+      Status:  "failed",
+      Error:   responseError,
+    }, errors.New(responseError) // Return the error itself as well
+  }
 
-	// Synchronous success
-	status := "inflight"
-	if !req.Inflight {
-		status = "applied"
-	}
+  // Synchronous success
+  status := "inflight"
+  if !req.Inflight {
+    status = "applied"
+  }
 
-	logrus.Infof("Completed sync bulk transaction batch %s successfully", batchID)
-	return &model.BulkTransactionResult{
-		BatchID:          batchID,
-		Status:           status,
-		TransactionCount: len(req.Transactions),
-	}, nil
+  logrus.Infof("Completed sync bulk transaction batch %s successfully", batchID)
+  return &model.BulkTransactionResult{
+    BatchID:          batchID,
+    Status:           status,
+    TransactionCount: len(req.Transactions),
+  }, nil
 }
