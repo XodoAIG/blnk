@@ -34,6 +34,8 @@ services:
       - redis
     volumes:
       - ./blnk.json:/blnk.json
+    networks:
+      - blnk-net
 
   worker:
     build:
@@ -48,11 +50,17 @@ services:
       - redis
     volumes:
       - ./blnk.json:/blnk.json
+    networks:
+      - blnk-net
 
   redis:
     image: redis:7.2.4
     container_name: redis-dev
+    ports:
+      - "6379:6379"
     restart: always
+    networks:
+      - blnk-net
 
   typesense:
     image: typesense/typesense:0.24.0
@@ -67,3 +75,9 @@ services:
     volumes:
       - ./typesense_data:/data
     command: "--data-dir /data --api-key=YXBpLWtleS1ibG5rLXR5cGVzZW5zZS10by14YS1mbGVldC1zZXJ2ZXIK --listen-port 8108 --enable-cors"
+    networks:
+      - blnk-net
+
+networks:
+  blnk-net:
+    driver: bridge
