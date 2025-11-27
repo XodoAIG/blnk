@@ -6,7 +6,28 @@ tasks:
     cmds:
       - echo "Build task executed"
 
-  dev:
+  redis-typesense:
+    desc: "Run Redis and Typesense services"
+    cmds:
+      - echo "Starting development environment..."
+      - docker compose -f docker-compose.dev.yaml down
+      - docker compose -f docker-compose.dev.yaml up -d redis typesense
+
+  server:
+    desc: "Server runner"
+    deps: [redis-typesense]
+    cmds:
+      - go run ./cmd migrate up
+      - echo "Migration completed and apply seed data if necessary"
+      - go run ./cmd start
+
+  workers:
+    desc: "Workers runner"
+    deps: [redis-typesense]
+    cmds:
+      - go run ./cmd start
+
+  docker:
     desc: "deploy blnk petropix QAS"
     dotenv: [".env.qas"]
     cmds:
