@@ -27,6 +27,15 @@ tasks:
     cmds:
       - go run ./cmd start
 
+  update-deps:
+    desc: "Update Go module dependencies"
+    cmds:
+      - git remote add upstream git@github.com:blnkfinance/blnk.git
+      - echo git remote -v
+      - git fetch upstream
+      - git checkout main
+      - git rebase upstream/main
+
   docker:
     desc: "deploy blnk petropix QAS"
     dotenv: [".env.qas"]
