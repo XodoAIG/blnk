@@ -12,3 +12,7 @@ CLAUDE.md
 
 blnk_qas.json
 blnk_prd.json
+
+*.tar
+
+/typesense_data
