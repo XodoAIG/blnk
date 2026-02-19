@@ -1,0 +1,60 @@
+# Copyright 2024 Blnk Finance Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+version: "3.8"
+
+services:
+  server:
+    image: ${BLNK_IMAGE:-jerryenebeli/blnk:0.11.2}
+    container_name: server-prd
+    restart: on-failure
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "blnk migrate up && blnk start"
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+    ports:
+      - "5001:5001"
+    depends_on:
+      - redis
+    volumes:
+      - ./blnk.json:/blnk.json
+
+  worker:
+    image: ${BLNK_IMAGE:-jerryenebeli/blnk:0.11.2}
+    container_name: worker-prd
+    restart: on-failure
+    entrypoint: ["blnk", "workers"]
+    ports:
+      - "5004:5004"
+    depends_on:
+      - redis
+    volumes:
+      - ./blnk.json:/blnk.json
+
+  redis:
+    image: redis:7.2.4
+    container_name: redis-prd
+
+  typesense:
+    image: typesense/typesense:0.24.0
+    container_name: typesense-prd
+    environment:
+      TYPESENSE_DATA_DIR: /data
+      TYPESENSE_HOST: http://172.31.26.233:8108
+      TYPESENSE_API_KEY: YXBpLWtleS1ibG5rLXR5cGVzZW5zZS10by14YS1mbGVldC1zZXJ2ZXIK
+    ports:
+      - "8108:8108"
+    volumes:
+      - ./typesense_data:/data
+    command: "--data-dir /data --api-key=YXBpLWtleS1ibG5rLXR5cGVzZW5zZS10by14YS1mbGVldC1zZXJ2ZXIK --listen-port 8108 --enable-cors"

@@ -1,0 +1,20 @@
+{
+  "project_name": "Blnk",
+  "data_source": {
+    "dns": "postgresql://foo:t3wg868ic6iyshfqzf6tj112gckxujd4nerx9esdvzf04mk58i6ldrx2lz2l03bx@xa-fleet-prod.cuqubmp5kbig.us-east-1.rds.amazonaws.com/xa_fleet"
+  },
+  "redis": {
+    "dns": "redis-prd:6379"
+  },
+  "server": {
+    "port": "5001",
+    "secure": true,
+    "secret_key": "YXBpLWtleS14YS1mbGVldC1zZXJ2ZXItcTF3MmUzCg=="
+  },
+  "typesense": {
+    "dns": "http://172.31.26.233:8108"
+  },
+  "type_sense_key": "YXBpLWtleS1ibG5rLXR5cGVzZW5zZS10by14YS1mbGVldC1zZXJ2ZXIK",
+  "enable_telemetry": false,
+  "enable_observability": false
+}
