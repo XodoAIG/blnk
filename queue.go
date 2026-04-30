@@ -19,6 +19,7 @@ package blnk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"time"
@@ -340,4 +341,21 @@ func (q *Queue) QueueInflightCommit(ctx context.Context, transaction *model.Tran
 		return q.queueInflightCommit(transaction.TransactionID, transaction.InflightCommitDate)
 	}
 	return nil
+}
+
+// TODO: implementação para fazer remover a transação da fila.
+func (q *Queue) CancelScheduledInflightTasks(transactionID string) {
+	for _, queueName := range []string{q.config.Queue.InflightExpiryQueue, q.config.Queue.InflightCommitQueue} {
+		if queueName == "" {
+			continue
+		}
+		err := q.Inspector.DeleteTask(queueName, transactionID)
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, asynq.ErrTaskNotFound) || errors.Is(err, asynq.ErrQueueNotFound) {
+			continue
+		}
+		logrus.WithError(err).WithField("transaction_id", transactionID).WithField("queue", queueName).Warn("failed to cancel scheduled inflight task")
+	}
 }

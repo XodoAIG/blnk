@@ -419,8 +419,12 @@ func (a Api) UpdateInflightStatus(c *gin.Context) {
 		amount = req.PreciseAmount
 	}
 
-	status := req.Status
-	if status == "commit" {
+	if req.Status == "commit" || req.Status == "void" {
+		a.blnk.CancelScheduledInflightTasks(id)
+	}
+
+	switch req.Status {
+	case "commit":
 		transaction, err := a.blnk.ProcessTransactionInBatches(c.Request.Context(), id, amount, 1, false, a.blnk.GetInflightTransactionsByParentID, a.blnk.CommitWorker)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -431,7 +435,7 @@ func (a Api) UpdateInflightStatus(c *gin.Context) {
 			return
 		}
 		resp = transformTransaction(transaction[0])
-	} else if status == "void" {
+	case "void":
 		transaction, err := a.blnk.ProcessTransactionInBatches(c.Request.Context(), id, amount, 1, false, a.blnk.GetInflightTransactionsByParentID, a.blnk.VoidWorker)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -442,7 +446,7 @@ func (a Api) UpdateInflightStatus(c *gin.Context) {
 			return
 		}
 		resp = transformTransaction(transaction[0])
-	} else {
+	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": errors.New("status not supported. use either commit or void")})
 		return
 	}

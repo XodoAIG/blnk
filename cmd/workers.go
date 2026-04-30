@@ -277,82 +277,24 @@ func (b *blnkInstance) processInflightCommit(ctx context.Context, t *asynq.Task)
 		return err
 	}
 
-	tx, err := b.blnk.GetTransaction(ctx, txnID)
-	if err != nil {
-		logrus.Errorf("failed to fetch transaction %s for expiry check: %v", txnID, err)
-		return err
-	}
-
-	if tx.Status != "INFLIGHT" {
-		logrus.Infof(" [*] Inflight Transaction %s already processed (Status: %s), ignoring auto-expiry", txnID, tx.Status)
-		return nil
-	}
-
-	_, err = b.blnk.CommitInflightTransaction(ctx, txnID, big.NewInt(0))
+	txn, err := b.blnk.CommitInflightTransaction(ctx, txnID, big.NewInt(0))
 	if err != nil {
 		logrus.Error(err)
 		return err
 	}
 
-	logrus.Printf(" [*] Inflight Transaction Auto-Committed %s", txnID)
+	logrus.Printf(" [*] Inflight Transaction Auto-Committed %s", txn.TransactionID)
 	return nil
 }
 
 func (b *blnkInstance) processInflightExpiry(ctx context.Context, t *asynq.Task) error {
 	var txnID string
-	// Unmarshal the transaction ID from the task payload.
 	if err := json.Unmarshal(t.Payload(), &txnID); err != nil {
 		logrus.Error(err)
 		return err
 	}
 
-	// filterBy := "status:REJECTED"
-	// pp := 1
-	// searchParams := &api.SearchCollectionParams{
-	// 	Q:        txnID,
-	// 	QueryBy:  "parent_transaction",
-	// 	FilterBy: &filterBy,
-	// 	PerPage:  &pp,
-	// }
-
-	// results, err := b.blnk.Search("transactions", searchParams)
-	// if err != nil {
-	// 	logrus.Error(err)
-	// 	return err
-	// }
-
-	// searchResult, ok := results.(*api.SearchResult)
-	// if !ok {
-	// 	errConv := errors.New("failed to convert search results to SearchResult type")
-	// 	logrus.Error(errConv)
-	// 	return errConv
-	// }
-
-	// if *searchResult.Found == 1 {
-	// 	_, err = b.blnk.VoidInflightTransaction(cxt, txnID)
-	// 	if err != nil {
-	// 		logrus.Error(err)
-	// 		return err
-	// 	}
-	// 	logrus.Infof(" [*] Inflight Transaction Voided %s", txnID)
-	// 	return nil
-	// }
-	// _, err = b.blnk.CommitInflightTransaction(cxt, txnID, big.NewInt(0))
-
-	//
-	tx, err := b.blnk.GetTransaction(ctx, txnID)
-	if err != nil {
-		logrus.Errorf("failed to fetch transaction %s for expiry check: %v", txnID, err)
-		return err
-	}
-
-	if tx.Status != "INFLIGHT" {
-		logrus.Infof(" [*] Inflight Transaction %s already processed (Status: %s), ignoring auto-expiry", txnID, tx.Status)
-		return nil
-	}
-
-	_, err = b.blnk.VoidInflightTransaction(ctx, txnID)
-	if err != nil {
+	if _, err := b.blnk.VoidInflightTransaction(ctx, txnID); err != nil {
 		logrus.Error(err)
 		return err
 	}
