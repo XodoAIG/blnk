@@ -6,26 +6,12 @@ tasks:
     cmds:
       - echo "Build task executed"
 
-  redis-typesense:
-    desc: "Run Redis and Typesense services"
+  dev:
+    desc: "Start the development environment with Docker Compose"
     cmds:
-      - echo "Starting development environment..."
       - docker compose -f docker-compose.dev.yaml down
-      - docker compose -f docker-compose.dev.yaml up -d redis typesense
+      - docker compose -f docker-compose.dev.yaml up -d
 
-  server:
-    desc: "Server runner"
-    deps: [redis-typesense]
-    cmds:
-      - go run ./cmd migrate up
-      - echo "Migration completed and apply seed data if necessary"
-      - go run ./cmd start
-
-  workers:
-    desc: "Workers runner"
-    deps: [redis-typesense]
-    cmds:
-      - go run ./cmd start
 
   rebase:
     desc: "Rebase the main branch with upstream"
