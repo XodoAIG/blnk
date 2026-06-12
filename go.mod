@@ -1,6 +1,6 @@
 module github.com/blnkfinance/blnk
 
-go 1.25.0
+go 1.26.1
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
@@ -13,7 +13,6 @@ require (
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/go-redis/cache/v9 v9.0.0
 	github.com/go-redis/redismock/v9 v9.2.0
-	github.com/go-sql-driver/mysql v1.9.1
 	github.com/google/uuid v1.6.0
 	github.com/hibiken/asynq v0.25.1
 	github.com/hibiken/asynqmon v0.7.2
@@ -71,6 +70,7 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.25.0 // indirect
+	github.com/go-sql-driver/mysql v1.9.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
