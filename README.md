@@ -17,7 +17,7 @@ Blnk is an open-source, double-entry ledger for teams building fintech products,
 
 It gives developers the core primitives needed to record transactions, manage balances, reconcile external records, and keep financial state accurate as products scale.
 
-[Read the developer docs](https://docs.blnkfinance.com/home/install?utm_source=github&utm_medium=readme_md&utm_campaign=oss_commercial_routing) | [Deploy on Blnk Cloud](https://cloud.blnkfinance.com/auth/sign-up?utm_source=github&utm_medium=readme_md&utm_campaign=oss_commercial_routing) | [View Support plans](https://blnkfinance.com/pricing#support-plans?utm_source=github&utm_medium=readme_md&utm_campaign=oss_commercial_routing) 
+[Read the developer docs](https://docs.blnkfinance.com/home/install?utm_source=github&utm_medium=readme_md&utm_campaign=oss_commercial_routing) | [Deploy on Blnk Cloud](https://cloud.blnkfinance.com/auth/sign-up?utm_source=github&utm_medium=readme_md&utm_campaign=oss_commercial_routing) | [View Support plans](https://blnkfinance.com/pricing#support-plans?utm_source=github&utm_medium=readme_md&utm_campaign=oss_commercial_routing)
 
 <br/>
 
