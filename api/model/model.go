@@ -87,9 +87,8 @@ func validatePrecisionNotNegative(value interface{}) error {
 // persisted as sent. The stored record then reports the opposite sign of the
 // movement it describes, and is invisible to an `amount > 0` filter.
 //
-// Zero is left to the existing downstream handling rather than rejected
-// here, so that the current zero-amount semantics (and issue #334's request
-// to make them opt-in) are not changed by this fix.
+// Zero amount is still the sentinel for "use precise_amount instead".
+// A zero precise_amount is rejected in ValidateRecordTransaction.
 func validateAmountNotNegative(t *RecordTransaction) validation.RuleFunc {
 	return func(value interface{}) error {
 		if t.Amount < 0 {
@@ -115,6 +114,30 @@ func destinationOrDestinationsValidation(t *RecordTransaction) validation.RuleFu
 	return func(value interface{}) error {
 		if (t.Destination == "" && len(t.Destinations) == 0) || (t.Destination != "" && len(t.Destinations) > 0) {
 			return errors.New("either destination or destinations is required, not both")
+		}
+		return nil
+	}
+}
+
+// splitOnOneSideValidation rejects a transaction that splits both sides at
+// once.
+//
+// SplitTransactionPrecise distributes over one side only — it takes Sources
+// when they are present and Destinations otherwise — and clears both on the
+// legs it produces. A transaction carrying both therefore has its
+// Destinations silently dropped, and every leg is left with an empty
+// Destination, which surfaces downstream as a lookup for a balance with a
+// blank id:
+//
+//	Balance with ID '' not found
+//
+// That names neither the field at fault nor the reason, for a request the
+// ledger cannot express in the first place. Reject it where the shape is
+// still visible.
+func splitOnOneSideValidation(t *RecordTransaction) validation.RuleFunc {
+	return func(value interface{}) error {
+		if len(t.Sources) > 0 && len(t.Destinations) > 0 {
+			return errors.New("a transaction can split either sources or destinations, not both")
 		}
 		return nil
 	}
@@ -252,6 +275,9 @@ func (t *RecordTransaction) ValidateRecordTransaction() error {
 			if t.Amount == 0 && t.PreciseAmount == nil {
 				return errors.New("either amount or precise_amount is required")
 			}
+			if t.PreciseAmount != nil && t.PreciseAmount.Sign() == 0 {
+				return errors.New("precise_amount must be positive")
+			}
 
 			// Check for high precision amounts that might lead to rounding errors
 			if t.Amount != 0 {
@@ -279,7 +305,7 @@ func (t *RecordTransaction) ValidateRecordTransaction() error {
 		validation.Field(&t.Currency, validation.Required),
 		validation.Field(&t.Reference, validation.Required),
 		validation.Field(&t.Description, validation.Required),
-		validation.Field(&t.Source, validation.By(sourceOrSourcesValidation(t))),
+		validation.Field(&t.Source, validation.By(sourceOrSourcesValidation(t)), validation.By(splitOnOneSideValidation(t))),
 		validation.Field(&t.Destination, validation.By(destinationOrDestinationsValidation(t)), validation.By(sameBalanceValidation(t))),
 		validation.Field(&t.ScheduledFor, validation.When(t.ScheduledFor != "", validation.By(func(value interface{}) error {
 			dateStr, ok := value.(string)

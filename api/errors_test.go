@@ -135,7 +135,7 @@ func TestRespondErrorMessagePatterns(t *testing.T) {
 		{"transaction is not in inflight status", apierror.ErrTxnNotInflight, http.StatusBadRequest},
 		{"cannot commit. Transaction already committed", apierror.ErrTxnAlreadyCommitted, http.StatusConflict},
 		{"transaction has already been voided", apierror.ErrTxnAlreadyVoided, http.StatusConflict},
-		{"transaction txn_1 has already been refunded", apierror.ErrGenConflict, http.StatusConflict},
+		{"transaction txn_1 has already been refunded", apierror.ErrTxnAlreadyRefunded, http.StatusConflict},
 		{"reference ref_991 has already been used", apierror.ErrTxnDuplicateReference, http.StatusConflict},
 		{"cannot commit more than the remaining amount. Available: USD 5.00, Requested: USD 9.00", apierror.ErrTxnCommitAmountExceeded, http.StatusBadRequest},
 		{"insufficient funds in source balance", apierror.ErrTxnInsufficientFunds, http.StatusBadRequest},
@@ -167,6 +167,17 @@ func TestRespondErrorMessagePatterns(t *testing.T) {
 			assert.Equal(t, tt.msg, raw["error"], "legacy message must be preserved verbatim")
 		})
 	}
+}
+
+func TestClassifyMessageMixedRefundBatchError(t *testing.T) {
+	joined := "transaction txn_1 has already been refunded\nfailed to queue refund transaction"
+	code, ok := classifyMessage(joined)
+	require.True(t, ok, "unfiltered joined batch errors must still classify as conflict")
+	assert.Equal(t, apierror.ErrGenConflict, code)
+
+	fatalOnly := "failed to queue refund transaction"
+	_, ok = classifyMessage(fatalOnly)
+	assert.False(t, ok, "fatal-only batch errors must not inherit conflict from skippable legs")
 }
 
 func TestRespondErrorFallbackSanitizes(t *testing.T) {
