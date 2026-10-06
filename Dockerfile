@@ -1,4 +1,4 @@
-FROM golang:1.26.1-alpine3.23 AS build-env
+FROM golang:1.27.0-alpine3.24 AS build-env
 
 WORKDIR /go/src/blnk
 
@@ -6,7 +6,8 @@ COPY . .
 
 RUN go build -o /blnk ./cmd/*.go
 
-FROM debian:bullseye-slim
+# debian:bullseye-slim foi descontinuada - https://www.debian.org/releases/bullseye/index.pt.html
+FROM debian:bookworm-slim
 
 # Install pg_dump version 16
 RUN apt-get update && apt-get install -y wget gnupg2 lsb-release && \
